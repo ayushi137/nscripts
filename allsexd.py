@@ -5,9 +5,7 @@ from callastrometry import callastrometry, scrubwcsheader
 def sexcalls(f,di,odi,cdi,bdi):
     fname = f.split('.fits')[0]
     objsexcall = 'sex -PARAMETERS_NAME photo.param -CATALOG_NAME '+cdi+fname+'.cat'+' -CHECKIMAGE_TYPE OBJECTS, BACKGROUND -CHECKIMAGE_NAME '+odi+fname+'_objects.fits '+di+f+', '+bdi+fname+'_background.fits '+di+f
-    #bcksexcall = 'sex -PARAMETERS_NAME photo.param -CATALOG_NAME '+cdi+fname+'.cat'+' -CHECKIMAGE_TYPE BACKGROUND -CHECKIMAGE_NAME '+bdi+fname+'_background.fits '+di+f
     os.system(objsexcall)
-    #os.system(bcksexcall)
 
 if __name__ == '__main__':
     directory = '/mnt/gfsproject/naiad/njones/moddragonflydata/'

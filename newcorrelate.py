@@ -81,15 +81,27 @@ arguments = docopt.docopt(__doc__)
 
 # Non-mandatory options without arguments
 
-verbose = arguments['--verbose']
-lowmemory = arguments['--lowmemory']
+VERBOSE = arguments['--verbose']
+LOWMEMORY = arguments['--lowmemory']
 
 # Non-mandatory options with arguments
 
 directory = arguments['--IOdir']
+subdir = arguments['--sub']
 APASSdir = arguments['--apass']
 filelist = arguments['--filelist']
 objects = arguments['--objects']
+
+# Testing options
+
+GENERATE = arguments['--generate']
+PHOTOMETRY = arguments['--photometry']
+CONVOLVE = arguments['--convolve']
+REGRID = arguments['--regrid']
+MASK = arguments['--mask']
+BACKSUB = arguments['--backsub']
+
+########################### IMPORT FUNCTIONS ############################
 
 from photometry import *
 from resconvolve import resconvolve
@@ -97,17 +109,21 @@ from maskdata import maskdata
 from regrid import reshape
 from backgroundplane import subBGplane
 
-#if lowmemory:
+if lowmemory:
+	from regrid import regrid_lowmemory as regrid
+elif not lowmemory:
+	from regrid import regrid
 
 '''
-#################################### CONSTANTS #################################
-
-# MULTIPLICATIVE CONSTANT USED TO CONVERT SIGMA USED IN SCIPY.SIGNAL.GAUSSIAN TO
-# A FWHM TELESCOPE RESOLUTION
-s2f = 2*sqrt(2*log(2))
-
 
 #################################### FUNCTIONS #################################
+
+def sexcalls(f,di,odi,cdi,bdi):
+    fname = f.split('.fits')[0]
+    objsexcall = 'sex -PARAMETERS_NAME photo.param -CATALOG_NAME '+cdi+fname+'.cat'
+    objsexcall += ' -CHECKIMAGE_TYPE OBJECTS, BACKGROUND -CHECKIMAGE_NAME '+odi+fname
+    objsexcall += '_objects.fits '+di+f+', '+bdi+fname+'_background.fits '+di+f
+    os.system(objsexcall)
 
 def hist2d(x,y,nbins,saveloc,labels=[]):
     a = where(isnan(x) == False)
@@ -284,14 +300,14 @@ for key in keys:
                     if os.path.isfile(pdi+cname) == True and generate == False:
                         cdata,dflyheader = fits.getdata(pdi+cname,header=True)
                     elif os.path.isfile(pdi+cname) != True or generate == True:
-                        cdata,dflyheader = resconvolve(pdata,dflybeam/s2f,
-                                                       herbeam/s2f,
+                        cdata,dflyheader = resconvolve(pdata,dflybeam,
+                                                       herbeam,
                                                        outfile = pdi+cname,
                                                        header = dflyheader)
                     if os.path.isfile(odi+ocname) == True and generate == False:
                         ocdata,oheader = fits.getdata(odi+ocname,header=True)
                     elif os.path.isfile(odi+ocname) != True or generate == True:
-                        ocdata,oheader = resconvolve(pstar,dflybeam/s2f,herbeam/s2f,
+                        ocdata,oheader = resconvolve(pstar,dflybeam,herbeam,
                                                      outfile = odi+ocname,
                                                      header = dflyheader)
                     if dflyheader == 0:
