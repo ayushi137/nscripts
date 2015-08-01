@@ -1,16 +1,44 @@
+"""
+regrid - contains functions to do regriding and reshaping of image data
+
+Requires the following modules: astropy, numpy, docopt, scipy, time,
+                                collections
+Requires the following files:   cartesian.py
+
+Contains the following functions: regrid_lowmemory, regrid, nanlimits,
+                                  valfilter, reshapeparams, reshape
+
+Usage:
+regrid [-h]
+
+Options:
+    -h, --help          Show this screen
+
+"""
+
 from astropy.io import fits
 from astropy import wcs
 from numpy import *
+import docopt
 import scipy.interpolate
 import time
 from cartesian import cartesian
 from collections import Counter, OrderedDict
 
-def regridoldschool(sourceimage,targetimage,fillval = NAN):
+def regrid_lowmemory(sourceimage,targetimage,fillval = NAN):
     """
-    sourceimage = path to image to regrid - should already be convolved to appropriate 
-                  resolution using resconvolve
-    targetimage = path to image whose grid is to be used in regridding
+    A low memory version of regrid, this takes sourceimage and puts it onto
+        targetimage grid, using wcs solutions for both. Grid points with 
+        no info from sourceimage are set to fillval.
+
+    sourceimage:    path to image to regrid - should already be convolved to appropriate 
+                    resolution using resconvolve
+    targetimage:    path to image whose grid is to be used in regridding
+    fillval:        value to give to empty grid positions
+                    (kwarg, default = NAN)
+
+    Returns array with targetimage dimensions.       
+
     """
     # Start timer
     start = time.time()
@@ -62,24 +90,20 @@ def regridoldschool(sourceimage,targetimage,fillval = NAN):
     print 'Regridded in ',(end-start)/60.,' min'
     return tofill,tdata
 
-def nanlimits(array):
-    vallocs = where(isnan(array) == False)
-    try:
-        uplim = max(vallocs[0])
-    except ValueError:
-        uplim = NAN
-    try:
-        downlim = min(vallocs[0])
-    except ValueError:
-        downlim = NAN
-    return downlim,uplim
 
 def regrid(sourceimage,targetimage,fillval = NAN):
     """
-    ****************REQUIRES SCIPY0.14.0 AT MIN **************************
-    sourceimage = path to image to regrid - should already be convolved to 
-                  appropriate resolution using resconvolve
-    targetimage = path to image whose grid is to be used in regridding
+    This takes sourceimage and puts it onto targetimage grid, using wcs 
+        solutions for both. Grid points with no info from sourceimage are 
+        set to fillval. Requires scipy0.14.0
+
+    sourceimage:    path to image to regrid - should already be convolved to appropriate 
+                    resolution using resconvolve
+    targetimage:    path to image whose grid is to be used in regridding
+    fillval:        value to give to empty grid positions
+                    (kwarg, default = NAN)
+
+    Returns array with targetimage dimensions.      
     """
     # Start timer
     start = time.time()
@@ -128,38 +152,82 @@ def regrid(sourceimage,targetimage,fillval = NAN):
     print 'Regridded in ',(end-start)/60.,' min'
     return tofill,tdata
 
+def nanlimits(arr):
+    """
+    For 1D arr, determine the index location of the first
+        and last non-NAN value.
+
+    arr:    1D input array
+
+    Returns 2 indices
+
+    """
+    # Find where arr is non-NAN
+    vallocs = where(isnan(arr) == False)
+    # Extract the indices corresponding to the maximum and
+    # minimum non-NANs. If none exist, set them to NAN
+    try:
+        uplim = max(vallocs[0])
+    except ValueError:
+        uplim = NAN
+    try:
+        downlim = min(vallocs[0])
+    except ValueError:
+        downlim = NAN
+    return downlim,uplim
+
 def valfilter(ls,minmax):
+    """
+    Filters a list by finding an extremal value that occurs more than once
+
+    ls:     list to filter
+    minmax: specify whether minimum or maximum value required
+
+    Returns a float
+
+    """
+    # Find how often each values occur in ls
     count = Counter(ls)
-    ocount = OrderedDict(sorted(count.items()))
-    keys = ocount.keys()
-    values = ocount.values()
+    # Remove keys that occur only once
+    keys = count.keys()
     for key in keys:
-        if ocount[key] == 1:
-            del ocount[key]
-    keys = ocount.keys()
+        if count[key] == 1:
+            del count[key]
+    keys = count.keys()
+    # Return min or max as specified
     if minmax == 'min':
         return min(keys)
     if minmax == 'max':
         return max(keys)
 
 def reshapeparams(data):
-    # search rows
+    """
+    Finds slicing limit of 2D array data
+
+    data:   2D array to be sliced
+
+    Returns slicing limits, 4 indices
+    """
+    # Prepare list of potential indices
     rowups = []
     colups = []
     rowdowns = []
     coldowns = []
+    # Search rows for limits
     for i in range(len(data)):
         rowdown,rowup = nanlimits(data[i])
         if not isnan(rowup):
             rowups.append(rowup)
         if not isnan(rowdown):
             rowdowns.append(rowdown)
+    # Search columns for limits
     for i in range(len(data[0])):
         coldown,colup = nanlimits(data[:,i])
         if not isnan(colup):
             colups.append(colup)
         if not isnan(coldown):
             coldowns.append(coldown)
+    # Of list of potential indices, find min and max
     rowup = valfilter(rowups,'min')
     rowdo = valfilter(rowdowns,'max')
     colup = valfilter(colups,'min')
@@ -167,7 +235,19 @@ def reshapeparams(data):
     return rowup,rowdo,colup,coldo
 
 def reshape(data,shapebyarr,ress):
+    """
+    Reshapes 2D data according to 2D shapebyarr, then slices ress rows
+        and columns off of each side.
+
+    data:       2D array to be reshaped
+    shapebyarr: 2D array to serve as instructions for reshaping
+    ress:       number of pixels to remove from each side
+
+    Returns a 2D array
+    """
+    # Find the slicng limits for the array
     rowup,rowdo,colup,coldo = reshapeparams(shapebyarr)
+    # Slice array by NAN limits and additional limits
     colslice = data[coldo+ress:colup-ress]
     rowslice = colslice.T
     rowslice = rowslice[rowdo+ress:rowup-ress]

@@ -14,8 +14,8 @@ Requires the following files:    photometry.py, resconvolve.py, maskdata.py
                                  regrid.py, backgroundplane.py
 
 Usage:
-correlate [-hvlgpcrmb] [-d DIRECTORY] [-o OBJECTNAMES] [-s DIRECTORY]
-          [-f FILEPATHS] [-a DIRECTORY]
+correlate [-hvlgpcrmb] [-d DIRECTORY] [-u DIRECTORIES] [-o OBJECTNAMES] 
+	      [-s DIRECTORY] [-f FILEPATHS] [-x DIRECTORY] [-a DIRECTORY]
 
 Options:
     -h, --help                        Show this screen
@@ -26,16 +26,21 @@ Options:
 
     -d DIRECTORY, --IOdir DIRECTORY   Location of input files (parent directory)
                                       [default: /mnt/gfsproject/naiad/njones/moddragonflydata/]
+    -u LIST, --unmod LIST             A list of subdirectories of --IOdir 
+    								  containing raw files and calibration frames
+    								  [default: /raw_lights/, /calframes/]
     -o OBJECTS, --objects OBJECTS     Provide a list of object subdirectory 
                                       names as a string
                                       [default: PGM_1_2, spi1_1]
     -s DIRECTORY, --sub DIRECTORY     Subdirectory containing flat-fielded and
                                       dark subtracted images
-                                      [default: NCalibrated] 
+                                      [default: /NCalibrated/] 
     -f FILES, --filelist FILES        Provide a list of file paths to process
                                       as a string. If empty, processes all file
                                       in input directory
                                       [default: ]
+    -x DIRECTORY, --cross DIRECTORY   Location of files to correlate with
+    								  [default: ../herschel/]
     -a DIRECTORY, --apass DIRECTORY   Location of APASS catalogues
                                       [default: APASS/]
 Testing Options:
@@ -43,6 +48,10 @@ Testing Options:
                                       any of the following substeps unless that
                                       data is missing
                                       If True, force all data to be generated
+    -n, --darksub					  If False, do not create master darks and 
+    								  subtract them unless files are missing
+    -q, --flatfield 				  If False, do not create master flats and 
+    								  divide by them unless files are missing
     -p, --photometry                  If False, do not perform photometry on an
                                       image unless photometry data is missing
                                       If True, force photometry to be done
@@ -81,15 +90,33 @@ arguments = docopt.docopt(__doc__)
 
 # Non-mandatory options without arguments
 
-verbose = arguments['--verbose']
-lowmemory = arguments['--lowmemory']
+VERBOSE = arguments['--verbose']
+LOWMEMORY = arguments['--lowmemory']
 
 # Non-mandatory options with arguments
 
 directory = arguments['--IOdir']
+rawdirs = arguments['--unmod']
+rawdir = rawdirs.split(', ')[0]
+caldir = rawdirs.split(', ')[1]
+subdir = arguments['--sub']
 APASSdir = arguments['--apass']
 filelist = arguments['--filelist']
 objects = arguments['--objects']
+corrdir = arguments['--cross']
+
+# Testing options
+
+GENERATE = arguments['--generate']
+DARKSUB = arguments['--darksub']
+FLATFIELD = arguments['--flatfield']
+PHOTOMETRY = arguments['--photometry']
+CONVOLVE = arguments['--convolve']
+REGRID = arguments['--regrid']
+MASK = arguments['--mask']
+BACKSUB = arguments['--backsub']
+
+########################### IMPORT FUNCTIONS ############################
 
 from photometry import *
 from resconvolve import resconvolve
@@ -97,71 +124,102 @@ from maskdata import maskdata
 from regrid import reshape
 from backgroundplane import subBGplane
 
-#if lowmemory:
+if LOWMEMORY:
+	from regrid import regrid_lowmemory as regrid
+elif not LOWMEMORY:
+	from regrid import regrid
 
 '''
-#################################### CONSTANTS #################################
-
-# MULTIPLICATIVE CONSTANT USED TO CONVERT SIGMA USED IN SCIPY.SIGNAL.GAUSSIAN TO
-# A FWHM TELESCOPE RESOLUTION
-s2f = 2*sqrt(2*log(2))
-
-
 #################################### FUNCTIONS #################################
 
-def hist2d(x,y,nbins,saveloc,labels=[]):
+def sexcalls(f,di,odi,cdi,bdi):
+	"""
+	Run source extractor on f, producing a catalogue, and object and background maps
+
+	f:		file name to run source extractor on
+	di:		directory path to f
+	odi:	directory to save object map in
+	cdi:	directory to save catalogue in
+	bdi:	directory to save background map in
+
+	Returns nothing explicitly, but runs source extractor on the file
+
+	"""
+	# Split to make file name for catalogue, object map and background map filenames
+    fname = f.split('.fits')[0]
+    # Construct source extractor call
+    objsexcall = 'sex -PARAMETERS_NAME photo.param -CATALOG_NAME '+cdi+fname+'.cat'
+    objsexcall += ' -CHECKIMAGE_TYPE OBJECTS, BACKGROUND -CHECKIMAGE_NAME '+odi+fname
+    objsexcall += '_objects.fits '+di+f+', '+bdi+fname+'_background.fits '+di+f
+    os.system(objsexcall)
+
+def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[]):
+	"""
+	Creates a 2D histogram from data given by numpy's histogram
+
+	x,y:		two 2D arrays to correlate, the second masked
+	nbins:		number of bins
+	maskval:	value that indicates masked areas
+				(kwarg, default = 0)
+	saveloc:	place to save histogram plot - if unspecified, do not
+				save plot (kwarg, default = '')
+	labels:		labels for histogram plot, with the following format
+				[title,xlabel,ylabel,zlabel] - if unspecified, do 
+				not label plot (kwarg, default = [])
+
+	Returns the edges of the histogram bins and the 2D histogram
+
+	"""
+	# Remove NAN values
     a = where(isnan(x) == False)
     x = x[a]
     y = y[a]
     b = where(isnan(y) == False)
     x = x[b]
     y = y[b]
-    c = where(y != 0)
+    # Remove masked areas
+    c = where(y != maskval)
     x = x[c]
     y = y[c]
+    # Create histogram
     H,xedges,yedges = histogram2d(x,y,bins=nbins)
+    # Reorient appropriately
     H = rot90(H)
     H = flipud(H)
+    # Mask zero value bins
     Hmasked = ma.masked_where(H==0,H)
-    #print Hmasked
+
+    # Begin creating figure
     plt.figure(figsize=(12,10))
+    # Use logscale
     plt.pcolormesh(xedges,yedges,Hmasked,
                    norm = LogNorm(vmin = Hmasked.min(),vmax = Hmasked.max()))
     cbar = plt.colorbar()
+    # Add labels
     if labels != []:
         title,xlabel,ylabel,zlabel = labels
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)
         plt.title(title)
         cbar.ax.set_ylabel(zlabel)
-    plt.savefig(saveloc)
+    # Save plot
+    if saveloc != '':
+    	plt.savefig(saveloc)
     plt.close()
+    # Return histogram
     return xedges,yedges,Hmasked
 
 ############################# DIRECTORIES ##################################
 
-# FOR INDIVIDUAL FILE PROCESSING, SPECIFY FILE PATHS IN THIS LIST
-# LEAVE LIST EMPTY TO PROCESS ALL FILES
-FILES = []
-
-# LOCATION OF APASS CATALOGUES
-APASSdir = 'APASS/'
-
-# LOCATION OF IMAGES TO CORRELATE AGAINST
+# location of images to correlate against
 herdir = '../herschel/'
 
-# SPECIFY HERSCHEL RESOLUTION AT EACH WAVELENGTH
+# specify herschel resolution at each wavelength
 SPIRE = {'PSW':17.6,'PMW':23.9,'PLW':35.2}
 spirekeys = SPIRE.keys()
 
-# FITS FILES TO CORRELATE WITH PARENT DIRECTORY
-directory = '/mnt/gfsproject/naiad/njones/moddragonflydata/'
-
-# DARK SUBTRACTED AND FLAT FIELDED FILES
-subdir = '/NCalibrated/'
-
-# IF NECESSARY, SPECIFY OBSERVATION DATE SUBDIRECTORY NAMES FOR EACH OBJECT 
-# IN A DICTIONARY
+# if necessary, specify observation date subdirectory names for each object 
+# in a dictionary
 objectdates = {}
 objectdates['PGM_1_2'] = ['2013-09-23','2013-09-24','2013-09-25','2013-09-26',
                           '2013-09-27']
@@ -169,31 +227,31 @@ objectdates['spi1_1'] = ['2014-10-31','2014-11-01','2014-11-19',
                          '2014-11-22','2014-11-23','2014-11-24']
 keys = objectdates.keys()
 
-# INDICATE OBJECT NAMES IN HERSCHEL FILE NAME FORMATTING
+# indicate object names in herschel file name formatting
 objectnames = {}
 objectnames['spi1_1'] = 'spider_SPIRE_'
 objectnames['PGM_1_2'] = 'draco_'
 
-# SOURCE EXTRACTOR OBJECT MAPS
+# source extractor object maps
 objdir = '/objects/'
-# SOURCE EXTRACTOR BACKGROUND MAPS
+# source extractor background maps
 bakdir = '/background/'
-# SOURCE EXTRACTOR CATALOGUE
+# source extractor catalogue
 catdir = '/catalogue/'
 
 # OUTPUT DIRECTORIES
-# LOCATION OF HELPER PLOTS FROM ZERO POINT MAGNITUDE CALCULATIONS
+# location of helper plots from zero point magnitude calculations
 magdir = '/magnitudecalcs/'
-# LOCATION OF PHOTOMETERED FITS FILES
+# location of photometered fits files
 outdir = '/photometered/'
-# LOCATION OF REGRIDDED IMAGES
+# location of regridded images
 regdir = '/regrid/'
-# LOCATION OF BACKGROUND PLANE SUBTRACTED IMAGES
+# location of background plane subtracted images
 bsudir = '/backgroundsub/'
-# LOCATION OF CORRELATION PLOTS
+# location of correlation plots
 cordir = '/correlations/'
 
-# IF ANY OF THE OUTPUT DIRECTORIES ARE MISSING, CREATE THEM NOW
+# if any of the output directories are missing, create them now
 dirlist = [outdir,regdir,cordir,magdir,bsudir]
 for d in dirlist:
     for key in keys:
@@ -284,14 +342,14 @@ for key in keys:
                     if os.path.isfile(pdi+cname) == True and generate == False:
                         cdata,dflyheader = fits.getdata(pdi+cname,header=True)
                     elif os.path.isfile(pdi+cname) != True or generate == True:
-                        cdata,dflyheader = resconvolve(pdata,dflybeam/s2f,
-                                                       herbeam/s2f,
+                        cdata,dflyheader = resconvolve(pdata,dflybeam,
+                                                       herbeam,
                                                        outfile = pdi+cname,
                                                        header = dflyheader)
                     if os.path.isfile(odi+ocname) == True and generate == False:
                         ocdata,oheader = fits.getdata(odi+ocname,header=True)
                     elif os.path.isfile(odi+ocname) != True or generate == True:
-                        ocdata,oheader = resconvolve(pstar,dflybeam/s2f,herbeam/s2f,
+                        ocdata,oheader = resconvolve(pstar,dflybeam,herbeam,
                                                      outfile = odi+ocname,
                                                      header = dflyheader)
                     if dflyheader == 0:
