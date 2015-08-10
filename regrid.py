@@ -7,13 +7,6 @@ Requires the following files:   cartesian.py
 
 Contains the following functions: regrid_lowmemory, regrid, nanlimits,
                                   valfilter, reshapeparams, reshape
-
-Usage:
-regrid [-h]
-
-Options:
-    -h, --help          Show this screen
-
 """
 
 from astropy.io import fits

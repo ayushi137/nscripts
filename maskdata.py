@@ -5,24 +5,14 @@ Requires the following modules: os, numpy, docopt, astropy
                                 matplotlib
 
 Contains the following functions: maskdata
-
-Usage:
-maskdata [-h]
-
-Options:
-    -h, --help         Show this screen
-
 """
 
 ########################### IMPORT BASE PACKAGES ############################
 
 import os
 from numpy import *
-import docopt
 from astropy.io import fits
 import matplotlib.pyplot as plt
-
-docopt.docopt(__doc__)
 
 ########################### FUNCTIONS ############################
 

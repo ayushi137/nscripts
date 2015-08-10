@@ -6,21 +6,12 @@ Requires the following modules: os, docopt, astropy
 
 Contains the following functions: callastrometry, scrubwcsheader
 
-Usage:
-callastrometry [-h]
-
-Options:
-    -h, --help          Show this screen
-
 """
 
 ########################## IMPORT PACKAGES ###########################
 import os
-import docopt
 from astropy import wcs
 from astropy.io import fits
-
-docopt.docopt(__doc__)
 
 ########################## DATA LISTS ###########################
 

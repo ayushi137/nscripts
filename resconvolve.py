@@ -6,24 +6,15 @@ Requires the following modules: docopt, scipy, numpy, os, astropy
 
 Contains the following functions: resconvolve
 
-Usage:
-resconvolve [-h]
-
-Options:
-    -h, --help      Show this screen
-
 """
 
 ########################## IMPORT PACKAGES ###########################
 
-import docopt
 import scipy.signal
 import scipy.interpolate
 from numpy import *
 import os
 from astropy.io import fits
-
-docopt.docopt(__doc__)
 
 ########################## FUNCTIONS ###########################
 

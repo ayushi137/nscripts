@@ -7,21 +7,12 @@ Requires the following modules: scipy, numpy, docopt
 Contains the following functions: plane, fillplane, dflyi, residuals
                                   subBGplane
 
-Usage:
-backgroundplane [-h]
-
-Options:
-    -h, --help          Show this screen
-
 """
 
 ########################## IMPORT PACKAGES ###########################
 
 from scipy.optimize import leastsq
 from numpy import *
-import docopt
-
-docopt.docopt(__docopt__)
 
 ########################## FUNCTIONS ###########################
 
