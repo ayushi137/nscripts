@@ -66,8 +66,32 @@ Testing Options:
                                     subtract an image unless subtracted is 
                                     missing
 """
+############################# IMPORT BASE PACKAGES #############################
+
+import os
+import docopt
+import numpy as np
+nmax = np.max
+nmin = np.min
+from numpy import *
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+from astropy.io import fits
+from astropy import units as u
+from astropy import wcs
+from astropy.time import Time
+from astropy.coordinates import SkyCoord, EarthLocation, AltAz
+from matplotlib.colors import LogNorm
 
 ################################ CONSTANTS ####################################
+# Telescope location
+lat = 32.902836
+long = -105.528350
+height = 2214
+telescope = EarthLocation(lat=lat*u.deg,lon=long*u.deg,height = 2214*u.m)
+
+# Conversion factor to transform sigma of scipy.signal.gaussian to FWHM
+s2f = 2*np.sqrt(2*log(2))
 
 # specify herschel resolution at each wavelength
 SPIRE = {'PSW':17.6,'PMW':23.9,'PLW':35.2}
@@ -98,18 +122,6 @@ regdir = '/regrid/'
 bsudir = '/backgroundsub/'
 # location of correlation plots
 cordir = '/correlations/'
-
-############################# IMPORT BASE PACKAGES #############################
-
-import os
-import docopt
-import numpy as np
-nmax = np.max
-nmin = np.min
-from numpy import *
-import matplotlib.pyplot as plt
-from astropy.io import fits
-from matplotlib.colors import LogNorm
 
 ########################### COMMAND LINE ARGUMENTS #############################
 
@@ -147,10 +159,11 @@ CONVOLVE = arguments['--convolve']
 REGRID = arguments['--regrid']
 MASK = arguments['--mask']
 BACKSUB = arguments['--backsub']
-'''
+
 ############################## IMPORT FUNCTIONS ################################
 
-from callastrometry import callastromerty
+from cartesian import cartesian
+from callastrometry import callastrometry
 from photometrypack import *
 from resconvolve import resconvolve
 from maskdata import maskdata
@@ -185,12 +198,12 @@ def getsubdir(directory):
 	return subdir
 
 
-def sexcall(f,di,odi,cdi,bdi):
+def sexcall(f,ddi,odi,cdi,bdi):
 	"""
 	Run source extractor on f, producing a catalogue, and object and background maps
 
 	f:		file name to run source extractor on
-	di:		directory path to f
+	ddi:		directory path to f
 	odi:	directory to save object map in
 	cdi:	directory to save catalogue in
 	bdi:	directory to save background map in
@@ -201,11 +214,10 @@ def sexcall(f,di,odi,cdi,bdi):
 	# object map and background map filenames
 	fname = f.split('.fits')[0]
 	# Construct source extractor call
-	objsexcall = ('sex -PARAMETERS_NAME photo.param -CATALOG_NAME '+cdi+
-		      fname+'.cat'+' -CHECKIMAGE_TYPE OBJECTS, BACKGROUND'+
-		      '-CHECKIMAGE_NAME '+odi+fname+ '_objects.fits, '+bdi+
-		      fname+'_background.fits '+di+f)
+	objsexcall = 'sex -PARAMETERS_NAME photo.param -CATALOG_NAME '+cdi+fname+'.cat'+' -CHECKIMAGE_TYPE OBJECTS -CHECKIMAGE_NAME '+odi+fname+'_objects.fits '+ddi+f
+	baksexcall = 'sex -PARAMETERS_NAME photo.param -CATALOG_NAME '+cdi+fname+'.cat'+' -CHECKIMAGE_TYPE BACKGROUND -CHECKIMAGE_NAME '+bdi+fname+'_background.fits '+ddi+f
 	os.system(objsexcall)
+	os.system(baksexcall)
 
 def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[]):
 	"""
@@ -274,14 +286,14 @@ if files:
 	breakdown = filelist[0].split('/')
 	fname = breakdown.pop(-1)
 	date = breakdown.pop(-1)
-	rawdir = breakdown.pop(-1)
+	rawdir = '/'+breakdown.pop(-1)+'/'
 	objects = breakdown.pop(-1)
 	directory = '/'.join(breakdown)+'/'
 	for f in filelist:
 		breakdown = f.split('/')
 		fname = breakdown.pop(-1)
 		date = breakdown.pop(-1)
-		newrawdir = breakdown.pop(-1)
+		newrawdir = '/'+breakdown.pop(-1)+'/'
 		assert newrawdir == rawdir
 		cloud = breakdown.pop(-1)
 		newdirectory = '/'.join(breakdown)+'/'
@@ -378,7 +390,7 @@ for key in keys:
         sdi = directory+key+cordir+date+'/'
         # Create output directories if any are missing
         for d in dirlist:
-            if os.path.isdir(d) == False:
+            if os.path.isdir(directory+key+d+date) == False:
                 os.system('mkdir '+directory+key+d+date+'/')
         files = datenames[date]
 
@@ -394,21 +406,22 @@ for key in keys:
             if GENERATE==True or ASTROMETRY==True:
             	callastrometry(ddi+f,generate=True)
             else:
-            	callastrometry(di+f)
+            	callastrometry(ddi+f)
 
 ################################ SEXTRACTOR ####################################
             if (GENERATE==True or os.path.isfile(cdi+spl+'.cat')==False or 
 		os.path.isfile(odi+spl+'_objects.fits')==False or 
-		os.path.isfile(bdi+fname+'_background.fits')==False):
-            	sexcall(f,ddi,odi,cdi,bdi)
+		os.path.isfile(bdi+spl+'_background.fits')==False):
+		    sexcall(f,ddi,odi,cdi,bdi)
 
 ################################ IMAGE PROPERTIES ##############################
             # Read in ds-ff data from file
-            dflyimage = fits.open(di+f)
+            dflyimage = fits.open(ddi+f)
             dflydata = dflyimage[0].data
             dflyheader = dflyimage[0].header
             dflyimage.close()
-            # Load catalogue data to find FWHM information
+	    soln = wcs.WCS(dflyheader)
+	    # Load catalogue data to find FWHM information
             catdata = loadtxt(cdi+spl+'.cat')
             # Find pixel scale from astrometry info
             pscalx = dflyheader['PSCALX']
@@ -416,13 +429,13 @@ for key in keys:
             pixscale = (pscalx+pscaly)/2.
             # Select for unflagged entries
             cheader = catheader(cdi+spl+'.cat')
-            catdata = catdata[where(catdata[:,catheader['FLAGS']] == 0)]
+            catdata = catdata[where(catdata[:,cheader['FLAGS']] == 0)]
             # Find the average FWHM and convert to arcseconds
-            pfwhm = mean(catdata[:,catheader['FWHM_IMAGE']])
+            pfwhm = mean(catdata[:,cheader['FWHM_IMAGE']])
             dflybeam = pfwhm*pixscale
             # Add FWHM to header
             dflyheader['FWHM'] = (dflybeam, 'arcseconds')
-            fits.writeto(ddi+f,dflyimage,dflyheader,clobber=True)
+            fits.writeto(ddi+f,dflydata,dflyheader,clobber=True)
             # If polarization data, skip
             if dflyheader['FILTNAM'] == 'Pol':
                 print 'Skipping polarization data'
@@ -436,7 +449,7 @@ for key in keys:
             # Run photometry
 	    if (os.path.isfile(pdi+pname) != True or GENERATE == True or 
 		PHOTOMETRY == True):
-		    pdata,dflyheader,zp = photometry(di+f,cdi+spl+'.cat',
+		    pdata,dflyheader,zp = photometry(ddi+f,cdi+spl+'.cat',
 						     APASSdir,pdi+pname, 
 						     create = True,
 						     plot = outplots)
@@ -452,12 +465,14 @@ for key in keys:
             convert = dflyheader['kJpADU']
             pstar = fits.getdata(odi+spl+'_objects.fits')*convert
             pback = fits.getdata(bdi+spl+'_background.fits')*convert
-            fits.writeto(odi+spl+'_photo_objects.fits',pstar,dflyheader)
-            fits.writeto(bdi+spl+'_photo_background.fits',pback,dflyheader)
+            fits.writeto(odi+spl+'_photo_objects.fits',pstar,dflyheader,
+			 clobber=True)
+            fits.writeto(bdi+spl+'_photo_background.fits',pback,dflyheader,
+			 clobber=True)
             
 ################################ CYCLE CORRELTION-FILES #########################
-            for hfile in herfiles:
-            	skey = [i for i in spirekeys if i in hfile][0]
+            for hername in herfiles:
+            	skey = [i for i in spirekeys if i in hername][0]
                 herbeam = SPIRE[skey]
 
 ################################ CONVOLUTION #####################################
@@ -505,7 +520,7 @@ for key in keys:
 
 ################################ RESHAPE #####################################                
                 mspl = mname.split('.fits')[0]
-                ress = sqrt((dflybeam/s2f)**2+(herbeam/s2f)**2)
+                ress = np.sqrt((dflybeam/s2f)**2+(herbeam/s2f)**2)
                 r = reshape(mdata,mdata,2*ress)
                 t = reshape(target,mdata,2*ress)
 
@@ -524,6 +539,40 @@ for key in keys:
                     dflyheader['BACKSUB'] = 'TRUE'
                     fits.writeto(gdi+bname,newr,dflyheader,clobber=True)
                     fits.writeto(bdi+spl+'_bgplane.fits',bg,dflyheader,clobber=True)
+		    hheader = fits.getheader(hername)
+		    hsoln = wcs.WCS(hheader)
+		    xmax = t.shape[1]
+		    xmin = 0
+		    xmid = t.shape[1]/2
+		    ymid = t.shape[0]/2
+		    world = hsoln.wcs_pix2world(array([[xmin,ymid],
+						       [xmid,ymid],
+						       [xmax,ymid]]),0)
+		    radec = SkyCoord(ra = world[:,0],dec = world[:,1],
+				     frame = 'icrs',unit = 'deg')
+		    time = Time(dflyheader['DATE'])
+		    altaz = radec.transform_to(AltAz(obstime=time,
+						     location=telescope))
+		    constalt = altaz.alt.deg[1]
+		    azmin = altaz.az.deg[0]
+		    azmax = altaz.az.deg[2]
+		    altazlims = SkyCoord(alt = [constalt,constalt], 
+					 az = [azmax,azmin],
+					 obstime = time,
+					 frame = 'altaz',
+					 location = telescope,
+					 unit = 'deg')
+		    radeclims = altazlims.icrs
+		    ralim = radeclims.ra.deg
+		    declim = radeclims.dec.deg
+		    radecpairs = array([[ralim[0],declim[0]],
+					[ralim[1],declim[1]]])
+		    pixlim = hsoln.wcs_world2pix(radecpairs,0)
+		    plt.figure()
+		    plt.imshow(bg,cmap = cm.Greys_r)
+		    plt.plot(pixlim[:,0],pixlim[:,1],'r',linewidth = 5)
+		    #plt.xlim(0,bg.shape[1])
+		    #plt.ylim(0,bg.shape[0])
                     bspl = bname.split('.fits')[0]
                     saveloc = sdi+bspl+'_'+skey+'.png'
                     title = 'Correlation between Dragonfly and Herschel'
@@ -536,5 +585,6 @@ for key in keys:
                 elif isinstance(newr,float) == True:
                     print 'Failed background subtraction'
                     continue
+	    print 'Done ', f,'\n\n\n\n\n\n'
                 #fits.writeto(hname,t,clobber=True
-'''
+
