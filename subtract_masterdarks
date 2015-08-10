@@ -1,0 +1,107 @@
+#!/usr/bin/env python
+
+"""subtract_masterdarks - subtract master dark frames from all files in a directory
+
+Usage:
+    subtract_masterdarks [-h] [-v] [-p] [-m directory] [-o directory] <directory>
+
+Options:
+    -h, --help                              Show this screen
+    -v, --verbose                           Show extra information [default: False]      
+    -m DIRECTORY, --masterdir DIRECTORY     Directory with master dark files [default: Master]
+    -o DIRECTORY, --outputdir DIRECTORY     Output directory name [default: DarkSubtracted]
+    -p --plot                               Show diagnostic plots
+"""
+
+import os
+import sys
+import shutil
+import docopt
+import itertools
+import matplotlib.pyplot as plt
+import numpy as np
+
+from astropy.modeling import models
+from astropy import units as u
+from astropy import nddata
+from astropy.io import fits
+
+import ccdproc
+from msumastro import ImageFileCollection, TableTree
+
+####################### BODY OF PROGRAM STARTS HERE ########################
+
+if __name__ == "__main__":
+
+    arguments = docopt.docopt(__doc__)
+
+    # Mandatory argument
+    stage_directory = arguments['<directory>']
+
+    # Non-mandatory options without arguments
+    verbose = arguments['--verbose']
+    show_plot = arguments['--plot']
+
+    # Non-mandatory options with arguments
+    master_directory = arguments['--masterdir']
+    output_directory = arguments['--outputdir']
+
+    if verbose:
+        print ""
+        print "**** DARK-SUBTRACTING ****"
+        print ""
+
+    # Create the output directory if necessary
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
+    
+    # Create the image file collection
+    staged_ic = ImageFileCollection(stage_directory, keywords='*')
+
+    # Determine which cameras were used to take data in this directory
+    serial_numbers = staged_ic.values('serialno',unique=True)
+
+    # Determine which exposure times used to take data in this directory
+    exptimes = staged_ic.values('exptime',unique=True)
+
+    # Loop over the lights and flats, dark subtracting each frame
+    for sn in serial_numbers:
+        for exptime in exptimes:
+
+            # note: this will NOT break if a light or flat does not have a given exposure time
+            lights_generator = staged_ic.hdus(serialno=sn, imagetyp='LIGHT', exptime=exptime, return_fname=True)
+            flats_generator = staged_ic.hdus(serialno=sn, imagetyp='FLAT', exptime=exptime, return_fname=True)
+            generator = itertools.chain(lights_generator,flats_generator)
+
+            for hdu,fname in generator:
+                short_master = "master_%s_dark_%s.fits" % (sn,exptime)
+                full_master = master_directory + os.sep + short_master
+
+                # Only subtract the master dark if a master dark exists
+                if os.path.isfile(full_master):
+                    image = ccdproc.CCDData.read(fname, unit=u.adu)
+                    dark_frame = ccdproc.CCDData.read(full_master, unit=u.adu)
+                    if verbose:
+                        print "--"
+                        print "Image: %s" % fname
+                        print "Serial number: %s  Exposure time: %s" % (sn,exptime)
+                        print "Dark frame is: %s" % full_master
+                    ds = ccdproc.subtract_dark(
+                        image,
+                        dark_frame,
+                        scale=False,
+                        data_exposure=exptime*u.second,
+                        dark_exposure=exptime*u.second)
+
+                    # Save the result
+                    path_list = fname.split(os.sep)
+                    short_fname = path_list[-1]
+                    short_outname = short_fname.replace('.fit','_ds.fit')
+                    full_outname = output_directory + os.sep + short_outname
+                    if verbose:
+                        print "Saving as: %s" % full_outname
+                    hdu = fits.PrimaryHDU(data=ds.data,header=ds.header)
+                    hdulist = fits.HDUList([hdu])
+                    if os.path.exists(full_outname):
+                        os.remove(full_outname)
+                    hdulist.writeto(full_outname)

@@ -1,0 +1,111 @@
+#!/usr/bin/env python
+
+"""create_masterflats - create master flat files
+
+Usage:
+    darkcombine [-h] [-v] [-p] [-o directory] <directory>
+
+Options:
+    -h, --help                              Show this screen
+    -v, --verbose                           Show extra information [default: False]      
+    -o DIRECTORY, --outputdir DIRECTORY     Output directory name  [default: Master]
+    -p --plot                               Plot the data
+
+Examples:
+    python create_masterflats.py -v -s C:\\Users\\abrah_000\\Desktop\\DataFiles
+
+"""
+
+import os
+import sys
+import shutil
+import docopt
+import matplotlib.pyplot as plt
+import numpy as np
+
+from astropy.modeling import models
+from astropy import units as u
+from astropy import nddata
+from astropy.io import fits
+
+import ccdproc
+from msumastro import ImageFileCollection, TableTree
+
+
+####################### BODY OF PROGRAM STARTS HERE ########################
+
+if __name__ == "__main__":
+
+    arguments = docopt.docopt(__doc__)
+
+    # Mandatory argument
+    data_dir = arguments['<directory>']
+
+    # Non-mandatory options without arguments
+    verbose = arguments['--verbose']
+    show_plot = arguments['--plot']
+
+    # Non-mandatory options with arguments
+    directory = arguments['--outputdir']
+
+    if verbose:
+        print ""
+        print "**** CREATING MASTER FLAT FRAMES ****"
+        print ""
+
+    # Parameters I'm making up for now
+    gain = 1.47 * u.electron / u.adu
+    readnoise = 8 * u.electron  
+    
+    # Create the output directory if necessary
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    
+    # Create the image file collection
+    all_ic = ImageFileCollection(data_dir, keywords='*')
+
+    # Determine which cameras were used to take data in this directory
+    serial_numbers = all_ic.values('serialno',unique=True)
+
+    # Loop over each camera, creating a master flat for each one
+    for sn in serial_numbers:
+
+        # Select frames to be stacked
+        flats_generator = all_ic.hdus(serialno=sn, imagetyp='FLAT', return_fname=True)
+
+        # Create a list of CCDData objects
+        flats = []
+        for flat, fname in flats_generator:
+            meta = flat.header
+            meta['filename'] = fname
+            flats.append(ccdproc.CCDData(data=flat.data, meta=meta, unit="adu"))
+
+        # Combine the flats
+        if verbose:
+            print "-------------------------------------------------------"
+            print 'Camera %s. Stacking %d flat frames.' % (sn,len(flats)) 
+        if len(flats) == 0:
+            if verbose:
+                print "Not calibration flats for camera %s." % (sn)
+            continue        
+        flat_combiner = ccdproc.Combiner(flats)
+        flat_combiner.scaling = lambda arr: 1/np.ma.median(arr)
+        low_thresh = 2
+        high_thresh = 2
+        flat_combiner.sigma_clipping(low_thresh=low_thresh, high_thresh=high_thresh, func=np.ma.median)
+        master_flat = flat_combiner.median_combine()
+        master_flat.header = flats[0].meta  # Kludge as the combiner does not combine metadata
+        master_flat.header['ORIGIN'] = 'combine_flats.py'
+        master_flat.header['PARAM'] = 'nframe = %d; type = median; low thresh = %f; high_thresh = %f; scaling = 1/median' % \
+                                      (len(flats),low_thresh,high_thresh)
+
+        # Save the master flat
+        output_file = directory + os.sep + "master_%s_flat.fits" % sn
+        if verbose:
+            print "Saving master flat: %s" % output_file
+        hdu = fits.PrimaryHDU(data=master_flat.data,header=master_flat.header)
+        #hdu.scale(type='float32',option='old')
+        hdulist = fits.HDUList([hdu])
+        if os.path.exists(output_file):
+            os.remove(output_file)
+        hdulist.writeto(output_file)

@@ -1,0 +1,140 @@
+#!/usr/bin/env python
+
+"""create_masterdarks - create master dark files
+
+Usage:
+    create_masterdarks [-h] [-v] [-p] [-o directory] <directory>
+
+Options:
+    -h, --help                              Show this screen
+    -v, --verbose                           Show extra information [default: False]      
+    -o DIRECTORY, --outputdir DIRECTORY     Output directory name  [default: Master]
+    -p --plot                               Plot the data
+
+Examples:
+    python create_masterdarks.py -v -s C:\\Users\\abrah_000\\Desktop\\DataFiles
+
+"""
+
+import os
+import sys
+import shutil
+import docopt
+import matplotlib.pyplot as plt
+import numpy as np
+
+from astropy.modeling import models
+from astropy import units as u
+from astropy import nddata
+from astropy.io import fits
+
+import ccdproc
+from msumastro import ImageFileCollection, TableTree
+
+
+# Print error information to standard error
+def print_verbose_string(printme):
+    print >> sys.stderr, "VERBOSE: %s" % printme
+
+# Exception functions
+
+class IOError(Exception):
+    """Base class for exceptions in this module."""
+    pass
+
+class FileError(IOError):
+    """Raised when a file cannot be accessed 
+
+    Attributes:
+        msg -- explanation of the error
+    """
+    def __init__(self, msg):
+        self.msg = msg
+
+
+# Returns a list of CCDData objects from a list of filenames
+def load_ccddata(mylist, dirname="/"):
+    output = []
+    for im in mylist:
+        filename = dirname + os.sep + im
+        #print(filename)
+        output.append(ccdproc.CCDData.read(filename, unit="adu"))
+    return(output)
+
+
+# Computes image statistics
+imstats = lambda dat: (dat.min(), dat.max(), dat.mean(), dat.std())
+
+
+####################### BODY OF PROGRAM STARTS HERE ########################
+
+if __name__ == "__main__":
+
+    arguments = docopt.docopt(__doc__)
+
+    # Mandatory argument
+    data_dir = arguments['<directory>']
+
+    # Non-mandatory options without arguments
+    verbose = arguments['--verbose']
+    show_plot = arguments['--plot']
+
+    # Non-mandatory options with arguments
+    directory = arguments['--outputdir']
+
+    if verbose:
+        print ""
+        print "**** CREATING MASTER DARK FRAMES ****"
+        print ""
+
+    # Parameters I'm making up for now
+    gain = 1.47 * u.electron / u.adu
+    readnoise = 8 * u.electron  
+    
+    # Create the output directory if necessary
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    
+    # Create the image file collection
+    all_images = ImageFileCollection(data_dir, keywords='*')
+    image_tree = TableTree(all_images.summary,['serialno','imagetyp','exptime'],'file')
+
+    # Determine which cameras were used to take data in this directory
+    serial_numbers = all_images.values('serialno',unique=True)
+
+    # Determine which exposure times used to take data in this directory
+    exptimes = all_images.values('exptime',unique=True)
+
+    # Loop over each camera, creating a master dark for each one
+    for sn in serial_numbers:
+        for exptime in exptimes:
+
+            # Make sure the output file can be written
+            output_file = directory + os.sep + "master_%s_dark_%s.fits" % (sn,exptime)
+            if os.path.exists(output_file):
+                os.remove(output_file)
+
+            # Select frames to be stacked
+            dark_frames = image_tree[sn]['dark'][exptime]
+
+            # Stack the images
+            if verbose:
+                print "-------------------------------------------------------"
+                if len(dark_frames) > 1:
+                    print 'Camera %s exptime %s. Stacking %d dark frames:' % (sn,exptime,len(dark_frames)) 
+                else:
+                    print 'Camera %s exptime %s. Using a single dark frame:' % (sn,exptime) 
+
+            # If you have darks at this particular exposure time, make a master dark.
+            if len(dark_frames) > 0:
+                ccddata_list = load_ccddata(dark_frames,dirname=data_dir)
+                combiner = ccdproc.Combiner(ccddata_list)
+                combiner.sigma_clipping(low_thresh=2, high_thresh=5, func=np.ma.median)
+                master_dark = combiner.median_combine()
+
+                # Create the output image
+                if verbose:
+                    print 'Writing %s' % output_file
+                hdu = fits.PrimaryHDU(master_dark.data)
+                hdulist = fits.HDUList([hdu])
+                hdulist.writeto(output_file)

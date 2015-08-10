@@ -1,0 +1,93 @@
+#!/usr/bin/env python
+
+"""divide_masterflats - divide all object images in a directory by master flat frames 
+
+Usage:
+    darksubtract [-h] [-v] [-p] [-m directory] [-o directory] <directory>
+
+Options:
+    -h, --help                              Show this screen
+    -v, --verbose                           Show extra information [default: False]      
+    -m DIRECTORY, --masterdir DIRECTORY     Directory with master dark files [default: Master]
+    -o DIRECTORY, --outputdir DIRECTORY     Output directory name [default: Calibrated]
+    -p --plot                               Show diagnostic plots
+"""
+
+import os
+import sys
+import shutil
+import docopt
+import itertools
+import matplotlib.pyplot as plt
+import numpy as np
+
+from astropy.modeling import models
+from astropy import units as u
+from astropy import nddata
+from astropy.io import fits
+
+import ccdproc
+from msumastro import ImageFileCollection, TableTree
+
+####################### BODY OF PROGRAM STARTS HERE ########################
+
+if __name__ == "__main__":
+
+    arguments = docopt.docopt(__doc__)
+
+    # Mandatory argument
+    stage_directory = arguments['<directory>']
+
+    # Non-mandatory options without arguments
+    verbose = arguments['--verbose']
+    show_plot = arguments['--plot']
+
+    # Non-mandatory options with arguments
+    master_directory = arguments['--masterdir']
+    output_directory = arguments['--outputdir']
+
+    if verbose:
+        print ""
+        print "**** DIVIDING BY MASTER FLATS ****"
+        print ""
+
+    # Create the output directory if necessary
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
+    
+    # Create the image file collection
+    staged_ic = ImageFileCollection(stage_directory, keywords='*')
+
+    # Determine which cameras were used to take data in this directory
+    serial_numbers = staged_ic.values('serialno',unique=True)
+
+    # Loop over the lights and flats, dark subtracting each frame
+    for sn in serial_numbers:
+
+        lights_generator = staged_ic.hdus(serialno=sn, imagetyp='light', return_fname=True)
+
+        for hdu,fname in lights_generator:
+            short_master = "master_%s_flat.fits" % sn
+            full_master = master_directory + os.sep + short_master
+            image = ccdproc.CCDData.read(fname, unit=u.adu)
+            ff = ccdproc.CCDData.read(full_master, unit=u.adu)
+            if verbose:
+                print "--"
+                print "Image: %s" % fname
+                print "Flat:  %s" % full_master
+            flattened_image = ccdproc.flat_correct(image, ff)
+            flattened_image.data = np.clip(flattened_image.data,0.0,65536.0)
+
+            # Save the result
+            path_list = fname.split(os.sep)
+            short_fname = path_list[-1]
+            short_outname = short_fname.replace('_ds.fit','_ds_ff.fit')
+            full_outname = output_directory + os.sep + short_outname
+            if verbose:
+                print "Saving as: %s" % full_outname
+            hdu = fits.PrimaryHDU(data=flattened_image.data,header=flattened_image.header)
+            hdu.scale(type='float32',bscale=1.0,bzero=0.0)
+            hdulist = fits.HDUList([hdu])
+            if os.path.exists(full_outname):
+                os.remove(full_outname)
+            hdulist.writeto(full_outname)
