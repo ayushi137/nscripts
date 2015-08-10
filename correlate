@@ -113,7 +113,7 @@ from matplotlib.colors import LogNorm
 ########################### COMMAND LINE ARGUMENTS #############################
 
 arguments = docopt.docopt(__doc__)
-'''
+
 # Non-mandatory options without arguments
 
 VERBOSE = arguments['--verbose']
@@ -146,7 +146,7 @@ CONVOLVE = arguments['--convolve']
 REGRID = arguments['--regrid']
 MASK = arguments['--mask']
 BACKSUB = arguments['--backsub']
-
+'''
 ############################## IMPORT FUNCTIONS ################################
 
 from callastrometry import callastromerty
