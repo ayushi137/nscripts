@@ -14,58 +14,56 @@ Requires the following files:    photometry.py, resconvolve.py, maskdata.py
                                  regrid.py, backgroundplane.py
 
 Usage:
-correlate [-hvlgpcrmbnqw] [-d DIRECTORY] [-u DIRECTORIES] [-o OBJECTNAMES] 
+correlate [-hvlgqwpcrmb] [-d DIRECTORY] [-u DIRECTORIES] [-o OBJECTNAMES] 
 		[-s DIRECTORY] [-f FILEPATHS] [-x DIRECTORY] [-a DIRECTORY]
 
 Options:
-    -h, --help				Show this screen
-    -v, --verbose			Print extra information
-    -l, --lowmemory			If True, use a version of regridding 
-					code that does not require high memory 
-					usage
-    -d DIRECTORY, --IOdir DIR		Location of input files (parent 
-					directory)
-					[default: /mnt/gfsproject/naiad/njones/moddragonflydata/]
-    -u LIST, --unmod LIST		A list of subdirectories of --IOdir 
-					containing raw files and calibration 
-					frames
-					[default: /raw_lights/, /calframes/]
-    -o OBJECTS, --objects OBJS		Provide a list of object subdirectory 
-					names as a string
- 					[default: PGM_1_2, spi1_1]
-    -s DIRECTORY, --sub DIR		Subdirectory containing flat-fielded and
-    					dark subtracted images
-					[default: /NCalibrated/] 
-    -f FILES, --filelist FILES		Provide a list of file paths to process
-					as a string. If empty, processes all 
-					file in input directory
-					[default: ]
-    -x DIRECTORY, --cross DIR		Location of files to correlate with
-					[default: ../herschel/]
-    -a DIRECTORY, --apass DIR		Location of APASS catalogues
-					[default: APASS/]
-Testing Options:
-    -g, --generate			If False, do not generate data from
-					any of the following substeps unless 
-					that data is missing
-    -q, --calibrate			If False, do not dark subtract and flat 
-					field them unless files are missing
-    -w, --astro				If False, do not do astrometry and 
-					create object catalogue
-    -p, --photometry			If False, do not perform photometry on 
-					an image unless photometry data is 
-					missing
-    -c, --convolve			If False, do not convolve an image 
-					unless convolved image missing
-    -r, --regrid			If False, do not regrid an image unless
-					regridded image is missing
-    -m, --mask				If False, do not mask an image unless
-					masked image is missing
-    -b, --backsub			If False, do not background plane 
-					subtract an image unless subtracted is 
-					missing
-
-
+    -h, --help
+    -v, --verbose
+    -l, --lowmemory                 If True, use a version of regridding 
+                                    code that does not require high memory 
+                                    usage
+    -g, --generate                  If False, do not generate data from
+                                    any of the following substeps unless 
+                                    that data is missing
+                                    [default: False]
+    -q, --calibrate                 If False, do not dark subtract and flat 
+                                    field them unless files are missing
+    -w, --astro                     If False, do not do astrometry and 
+                                    create object catalogue
+    -p, --photometry                If False, do not perform photometry on 
+                                    an image unless photometry data is 
+                                    missing
+    -c, --convolve                  If False, do not convolve an image 
+                                    unless convolved image missing
+    -r, --regrid                    If False, do not regrid an image unless
+                                    regridded image is missing
+    -m, --mask                      If False, do not mask an image unless
+                                    masked image is missing
+    -b, --backsub                   If False, do not background plane 
+                                    subtract an image unless subtracted is 
+                                    missing
+    -d DIRECTORY, --IOdir DIR       Location of input files (parent 
+                                    directory)
+                                    [default: dflydata/]
+    -u LIST, --unmod LIST           A list of subdirectories of --IOdir 
+                                    containing raw files and calibration 
+                                    frames
+                                    [default: /raw_lights/, /calframes/]
+    -o OBJECTS, --objects OBJS      Provide a list of object subdirectory 
+                                    names as a string
+                                    [default: PGM_1_2, spi1_1]
+    -s DIRECTORY, --sub DIR         Subdirectory containing flat-fielded and
+                                    dark subtracted images
+                                    [default: /NCalibrated/] 
+    -f FILES, --filelist FLS        Provide a list of file paths to process
+                                    as a string. If empty, processes all 
+                                    file in input directory
+                                    [default: ]
+    -x DIRECTORY, --cross DIR       Location of files to correlate with
+                                    [default: ../herschel/]
+    -a DIRECTORY, --apass DIR       Location of APASS catalogues
+                                    [default: APASS/]
 """
 
 ################################ CONSTANTS ####################################
@@ -115,7 +113,7 @@ from matplotlib.colors import LogNorm
 ########################### COMMAND LINE ARGUMENTS #############################
 
 arguments = docopt.docopt(__doc__)
-
+'''
 # Non-mandatory options without arguments
 
 VERBOSE = arguments['--verbose']
@@ -537,4 +535,5 @@ for key in keys:
                 elif isinstance(newr,float) == True:
                     print 'Failed background subtraction'
                     continue
-                #fits.writeto(hname,t,clobber=True)
+                #fits.writeto(hname,t,clobber=True
+'''
