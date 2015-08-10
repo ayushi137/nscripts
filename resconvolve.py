@@ -27,12 +27,12 @@ docopt.docopt(__doc__)
 
 ########################## FUNCTIONS ###########################
 
-def resconvolve(data,currentres,desiredres,pixscale = 2.85,
+def resconvolve(fname,currentres,desiredres,pixscale = 2.85,
                 outfile=0,header=0):
     """
     Convolves data from currentres to desiredres.
 
-    data:           image to change resolution of
+    fname:          image to change resolution of
     currentres:     current resolution of the image in arcseconds
     desiredres:     desired resolution to change to in arcseconds
     pixscale:       either float or 2-element list, the pixel scale
@@ -49,6 +49,7 @@ def resconvolve(data,currentres,desiredres,pixscale = 2.85,
     Returns convolved data
 
     """
+    data = fits.getdata(fname)
     # Factor to convert sigma used in scipy.signal.gaussian to FWHM
     s2f = 2*sqrt(2*log(2))
     # Convert resolutions to sigma for scipy.signal.gaussian

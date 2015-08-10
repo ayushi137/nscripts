@@ -373,8 +373,8 @@ def photometry(fname,catname,APASSdir,outname,threshold=30./3600.,stdcutoff=2,
         allowedsuccess = [1,2,3,4]
         if success in allowedsuccess:
             # Convert image units
-            data= tokjypersr(data,pixscale,zpmagi2[0])
             kJperADU = float(tokjypersr(1,pixscale,zpmagi2[0]))
+            data *= kJperADU
             header['UNITS'] = 'kJy/sr'
             header['M0'] = float(zpmagi2[0])
             header['kJpADU'] = (kJperADU,'kJy/sr per ADU/pixel')
