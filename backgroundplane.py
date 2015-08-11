@@ -110,7 +110,7 @@ def subBGplane(Di,Hi,p0):
         print 'Successful fit'
         a,b,c,d = ps[0]
         Bgplane = fillplane(b,c,d,x0,y0,Di)
-        return Di - Bgplane, Bgplane
+        return Di - Bgplane, Bgplane, [b,c,d,x0,y0]
     if not success in allowedsuccess:
         print 'Failed to fit'
-        return 0,0
+        return 0,0,[]

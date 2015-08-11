@@ -35,7 +35,7 @@ Options:
                                     [default: PGM_1_2, spi1_1]
     -s DIRECTORY, --sub DIR         Subdirectory containing flat-fielded and
                                     dark subtracted images
-                                    [default: /NCalibrated/] 
+                                    [default: /darksub_flatfield/] 
     -f FILES, --filelist FLS        Provide a list of file paths to process
                                     as a string. If empty, processes all 
                                     file in input directory
@@ -146,7 +146,7 @@ if filelist != ['']:
 	files = True
 elif filelist == ['']:
 	files = False
-objects = arguments['--objects']
+objects = arguments['--objects'].split(', ')
 herdir = arguments['--cross']
 
 # Testing options
@@ -168,7 +168,7 @@ from photometrypack import *
 from resconvolve import resconvolve
 from maskdata import maskdata
 from regrid import reshape
-from backgroundplane import subBGplane
+from backgroundplane import subBGplane,fillplane,plane
 
 if LOWMEMORY:
 	from regrid import regrid_lowmemory as regrid
@@ -177,6 +177,14 @@ elif not LOWMEMORY:
 
 
 #################################### FUNCTIONS #################################
+
+def getAltAz(arr,header,time,location):
+	soln = wcs.WCS(header)
+	coords = cartesian([arange(arr.shape[1]),arange(arr.shape[0])])
+	world = soln.wcs_pix2world(coords,0)
+	radec = SkyCoord(ra=world[:,0],dec=world[:,1],frame='icrs',unit='deg')
+	altaz = radec.transform_to(AltAz(obstime=time,location=telescope))
+	return altaz.alt.deg,altaz.az.deg,coords[:,0],coords[:,1]
 
 def fexists(fname):
 	if os.path.isfile(fname) == True:
@@ -326,7 +334,7 @@ if not files:
 		herfiles = os.listdir(hdirec)
 		objectherfiles[cloud] = [hdirec+'/'+i for i in herfiles 
 					 if 'reindex' in i]
-		for date in subdir:
+		for date in subdirs:
 			fnames = os.listdir(direc+'/'+date)
 			datenames[date] = fnames
 keys = objectdates.keys()
@@ -364,10 +372,13 @@ for key in keys:
         print 'DATE '+date
 
 ################################ CALIBRATE #####################################
-        if GENERATE == True:
-        	os.system('./calibratedata.sh {0} {1} {2} {3} {4} {5} {6} {7}'+
-			  '{8}'.format(directory,key,date,caldir,rawdir,damdir,
-				       flmdir,dsmdir,subdir))
+        if GENERATE == True and files == False:
+		calcom = './calibratedata.sh {0} {1} {2} {3} '.format(directory,
+								     key,date,
+								     caldir)
+		calcom += '{0} {1} {2} {3} {4}'.format(rawdir,damdir,flmdir,
+						       dsmdir,subdir)
+        	os.system(calcom)
         # Directory containing raw image files
         di = directory+key+rawdir+date+'/'
         # Directory containing dark subtracted and flat fielded files
@@ -418,6 +429,7 @@ for key in keys:
             # Read in ds-ff data from file
             dflyimage = fits.open(ddi+f)
             dflydata = dflyimage[0].data
+	    dflydata[where(isnan(dflydata)==True)] = 0
             dflyheader = dflyimage[0].header
             dflyimage.close()
 	    soln = wcs.WCS(dflyheader)
@@ -517,7 +529,26 @@ for key in keys:
                     mdata,dflyheader = maskdata(cdata,ocdata,cutoff,
                                                 outfile = pdi+mname,
                                                 header = dflyheader)
-
+		p0 = [2,1,1,1]
+		newr,tempbg,tempps = subBGplane(mdata,target,p0)
+		hheader = fits.getheader(hername)
+		time = Time(dflyheader['DATE'])
+		planefill = zeros((90,360))
+		alt,az,xpix,ypix = getAltAz(tempbg,hheader,time,telescope)
+		alt = alt[0::10000]
+		az = az[0::10000]
+		xpix = xpix[0::10000]
+		ypix = ypix[0::10000]
+		temp = []
+		for i in range(len(xpix)):
+			temp.append(tempbg[ypix[i]][xpix[i]])
+		plt.figure(figsize = (12,10))
+		plt.tripcolor(az,alt,temp,cmap = plt.cm.gray)
+		plt.xlabel('Azimuth [deg]')
+		plt.ylabel('Altitude [deg]')
+		plt.savefig(bdi+mspl+'_bgplane_azalt.png')
+		plt.close()
+		#plt.plot(xpix,ypix,'ko')
 ################################ RESHAPE #####################################                
                 mspl = mname.split('.fits')[0]
                 ress = np.sqrt((dflybeam/s2f)**2+(herbeam/s2f)**2)
@@ -534,45 +565,11 @@ for key in keys:
                 rspl = rname.split('.fits')[0]
                 bname = rspl+'_backsub.fits'
                 p0 = [2,1,1,1]
-                newr,bg = subBGplane(r,t,p0)
+                newr,bg,ps = subBGplane(r,t,p0)
                 if isinstance(newr,float) != True:
                     dflyheader['BACKSUB'] = 'TRUE'
                     fits.writeto(gdi+bname,newr,dflyheader,clobber=True)
-                    fits.writeto(bdi+spl+'_bgplane.fits',bg,dflyheader,clobber=True)
-		    hheader = fits.getheader(hername)
-		    hsoln = wcs.WCS(hheader)
-		    xmax = t.shape[1]
-		    xmin = 0
-		    xmid = t.shape[1]/2
-		    ymid = t.shape[0]/2
-		    world = hsoln.wcs_pix2world(array([[xmin,ymid],
-						       [xmid,ymid],
-						       [xmax,ymid]]),0)
-		    radec = SkyCoord(ra = world[:,0],dec = world[:,1],
-				     frame = 'icrs',unit = 'deg')
-		    time = Time(dflyheader['DATE'])
-		    altaz = radec.transform_to(AltAz(obstime=time,
-						     location=telescope))
-		    constalt = altaz.alt.deg[1]
-		    azmin = altaz.az.deg[0]
-		    azmax = altaz.az.deg[2]
-		    altazlims = SkyCoord(alt = [constalt,constalt], 
-					 az = [azmax,azmin],
-					 obstime = time,
-					 frame = 'altaz',
-					 location = telescope,
-					 unit = 'deg')
-		    radeclims = altazlims.icrs
-		    ralim = radeclims.ra.deg
-		    declim = radeclims.dec.deg
-		    radecpairs = array([[ralim[0],declim[0]],
-					[ralim[1],declim[1]]])
-		    pixlim = hsoln.wcs_world2pix(radecpairs,0)
-		    plt.figure()
-		    plt.imshow(bg,cmap = cm.Greys_r)
-		    plt.plot(pixlim[:,0],pixlim[:,1],'r',linewidth = 5)
-		    #plt.xlim(0,bg.shape[1])
-		    #plt.ylim(0,bg.shape[0])
+                    fits.writeto(bdi+mspl+'_bgplane.fits',bg,dflyheader,clobber=True)
                     bspl = bname.split('.fits')[0]
                     saveloc = sdi+bspl+'_'+skey+'.png'
                     title = 'Correlation between Dragonfly and Herschel'

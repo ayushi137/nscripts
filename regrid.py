@@ -18,17 +18,19 @@ import time
 from cartesian import cartesian
 from collections import Counter, OrderedDict
 
-def regrid_lowmemory(sourceimage,targetimage,fillval = NAN):
+def regrid_lowmemory(sourceimage,targetimage,fillval = NAN,theader = 0):
     """
     A low memory version of regrid, this takes sourceimage and puts it onto
         targetimage grid, using wcs solutions for both. Grid points with 
         no info from sourceimage are set to fillval.
 
-    sourceimage:    path to image to regrid - should already be convolved to appropriate 
-                    resolution using resconvolve
+    sourceimage:    path to image to regrid - should already be convolved 
+                    to appropriate resolution using resconvolve
     targetimage:    path to image whose grid is to be used in regridding
     fillval:        value to give to empty grid positions
                     (kwarg, default = NAN)
+    theader:        specify a header containing WCS solution to use
+                    (kwarg, default = 0)
 
     Returns array with targetimage dimensions.       
 
@@ -45,7 +47,10 @@ def regrid_lowmemory(sourceimage,targetimage,fillval = NAN):
     # Interpolate the image data over pixel indices
     interp = scipy.interpolate.RectBivariateSpline(y,x,sdata)
     # Load in target grid data
-    tdata,theader = fits.getdata(targetimage,header=True)
+    if theader == 0:
+        tdata,theader = fits.getdata(targetimage,header=True)
+    if theader != 0:
+        tdata = fits.getdata(targetimage)
     # Create WCS object for target grid
     targetwcs = wcs.WCS(theader)
     # Create all possible pairs of pixel coordinates in target grid
@@ -84,17 +89,19 @@ def regrid_lowmemory(sourceimage,targetimage,fillval = NAN):
     return tofill,tdata
 
 
-def regrid(sourceimage,targetimage,fillval = NAN):
+def regrid(sourceimage,targetimage,fillval = NAN,theader = 0,tpix = []):
     """
     This takes sourceimage and puts it onto targetimage grid, using wcs 
         solutions for both. Grid points with no info from sourceimage are 
         set to fillval. Requires scipy0.14.0
 
-    sourceimage:    path to image to regrid - should already be convolved to appropriate 
-                    resolution using resconvolve
+    sourceimage:    path to image to regrid - should already be convolved 
+                    to appropriate resolution using resconvolve
     targetimage:    path to image whose grid is to be used in regridding
     fillval:        value to give to empty grid positions
                     (kwarg, default = NAN)
+    theader:        specify a header containing WCS solution to use
+                    (kwarg, default = 0)
 
     Returns array with targetimage dimensions.      
     """
@@ -110,14 +117,21 @@ def regrid(sourceimage,targetimage,fillval = NAN):
     # Interpolate the image data over pixel indices
     interp = scipy.interpolate.RectBivariateSpline(y,x,sdata)
     # Load in target grid data
-    tdata,theader = fits.getdata(targetimage,header=True)
-    # Create WCS object for target grid
-    targetwcs = wcs.WCS(theader)
-    # Create all possible pairs of pixel coordinates in target grid
-    coords = cartesian([arange(tdata.shape[1]),arange(tdata.shape[0])])
+    if theader == 0 or tpix == []:
+        tdata,theader = fits.getdata(targetimage,header=True)
+        # Create all possible pairs of pixel coordinates in target grid
+        coords = cartesian([arange(tdata.shape[1]),arange(tdata.shape[0])])
+    elif theader != 0 and tpix != []:
+        assert len(tpix) == 4
+        dx,ux,dy,uy = tpix
+        # Create all possible pairs of pixel coordinates in target grid
+        tdata = zeros((uy-dy,ux-dx))
+        coords = cartesian([arange(dx,ux),arange(dy,uy)])
     # Extract x and y columns of pixel pairs
     xpixs = coords[:,0]
     ypixs= coords[:,1]
+    # Create WCS object for target grid
+    targetwcs = wcs.WCS(theader)
     # Convert target grid pixels to ra/dec 
     world = targetwcs.wcs_pix2world(coords,0)
     # Convert target grid ra/dec to source pixel coordinates
