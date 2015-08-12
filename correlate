@@ -407,181 +407,185 @@ for key in keys:
 
 ################################ CYCLE FILES ###################################
         for f in files:
-            print 'FILE '+ddi+f
-            f = f.split('.fits')[0]+'_ds_ff.fits'
+		try:
+			print 'FILE '+ddi+f
+			f = f.split('.fits')[0]+'_ds_ff.fits'
             # Confirm calibrated file exists
-            assert os.path.isfile(ddi+f) == True
-            spl = f.split('.fits')[0]
+			assert os.path.isfile(ddi+f) == True
+			spl = f.split('.fits')[0]
 
 ################################ ASTROMETRY ####################################
-            if GENERATE==True or ASTROMETRY==True:
-            	callastrometry(ddi+f,generate=True)
-            else:
-            	callastrometry(ddi+f)
+			if GENERATE==True or ASTROMETRY==True:
+				callastrometry(ddi+f,generate=True)
+			else:
+				callastrometry(ddi+f)
 
 ################################ SEXTRACTOR ####################################
-            if (GENERATE==True or os.path.isfile(cdi+spl+'.cat')==False or 
-		os.path.isfile(odi+spl+'_objects.fits')==False or 
-		os.path.isfile(bdi+spl+'_background.fits')==False):
-		    sexcall(f,ddi,odi,cdi,bdi)
+			if (GENERATE==True or os.path.isfile(cdi+spl+'.cat')==False or 
+			    os.path.isfile(odi+spl+'_objects.fits')==False or 
+			    os.path.isfile(bdi+spl+'_background.fits')==False):
+				sexcall(f,ddi,odi,cdi,bdi)
 
 ################################ IMAGE PROPERTIES ##############################
             # Read in ds-ff data from file
-            dflyimage = fits.open(ddi+f)
-            dflydata = dflyimage[0].data
-	    dflydata[where(isnan(dflydata)==True)] = 0
-            dflyheader = dflyimage[0].header
-            dflyimage.close()
-	    soln = wcs.WCS(dflyheader)
+			dflyimage = fits.open(ddi+f)
+			dflydata = dflyimage[0].data
+			dflydata[where(isnan(dflydata)==True)] = 0
+			dflyheader = dflyimage[0].header
+			dflyimage.close()
+			soln = wcs.WCS(dflyheader)
 	    # Load catalogue data to find FWHM information
-            catdata = loadtxt(cdi+spl+'.cat')
+			catdata = loadtxt(cdi+spl+'.cat')
             # Find pixel scale from astrometry info
-            pscalx = dflyheader['PSCALX']
-            pscaly = dflyheader['PSCALY']
-            pixscale = (pscalx+pscaly)/2.
+			pscalx = dflyheader['PSCALX']
+			pscaly = dflyheader['PSCALY']
+			pixscale = (pscalx+pscaly)/2.
             # Select for unflagged entries
-            cheader = catheader(cdi+spl+'.cat')
-            catdata = catdata[where(catdata[:,cheader['FLAGS']] == 0)]
+			cheader = catheader(cdi+spl+'.cat')
+			catdata = catdata[where(catdata[:,cheader['FLAGS']] == 0)]
             # Find the average FWHM and convert to arcseconds
-            pfwhm = mean(catdata[:,cheader['FWHM_IMAGE']])
-            dflybeam = pfwhm*pixscale
+			pfwhm = mean(catdata[:,cheader['FWHM_IMAGE']])
+			dflybeam = pfwhm*pixscale
             # Add FWHM to header
-            dflyheader['FWHM'] = (dflybeam, 'arcseconds')
-            fits.writeto(ddi+f,dflydata,dflyheader,clobber=True)
+			dflyheader['FWHM'] = (dflybeam, 'arcseconds')
+			fits.writeto(ddi+f,dflydata,dflyheader,clobber=True)
             # If polarization data, skip
-            if dflyheader['FILTNAM'] == 'Pol':
-                print 'Skipping polarization data'
-                continue  
+			if dflyheader['FILTNAM'] == 'Pol':
+				print 'Skipping polarization data'
+				continue  
 
 ################################ PHOTOMETRY ###################################      
             # Choose photometered file name
-            pname = spl+'_photo.fits'
+			pname = spl+'_photo.fits'
             # Choose output location for photometry related plots
-            outplots = mdi+spl
+			outplots = mdi+spl
             # Run photometry
-	    if (os.path.isfile(pdi+pname) != True or GENERATE == True or 
-		PHOTOMETRY == True):
-		    pdata,dflyheader,zp = photometry(ddi+f,cdi+spl+'.cat',
-						     APASSdir,pdi+pname, 
-						     create = True,
-						     plot = outplots)
-            elif (os.path.isfile(pdi+pname) == True and GENERATE == False and 
-		  PHOTOMETRY == False):
-                pdata,dflyheader = fits.getdata(pdi+pname,header=True)
-                zp = dflyheader['M0']
+			if (os.path.isfile(pdi+pname) != True or GENERATE == True or 
+			    PHOTOMETRY == True):
+				pdata,dflyheader,zp = photometry(ddi+f,cdi+spl+'.cat',
+								 APASSdir,pdi+pname, 
+								 create = True,
+								 plot = outplots)
+			elif (os.path.isfile(pdi+pname) == True and GENERATE == False and 
+			      PHOTOMETRY == False):
+				pdata,dflyheader = fits.getdata(pdi+pname,header=True)
+				zp = dflyheader['M0']
             # If photometry failed, quit
-            if zp == 'N/A':
-            	print 'Photometry failed, skipping file'
-            	continue
+			if zp == 'N/A':
+				print 'Photometry failed, skipping file'
+				continue
             # Convert units in object and background map
-            convert = dflyheader['kJpADU']
-            pstar = fits.getdata(odi+spl+'_objects.fits')*convert
-            pback = fits.getdata(bdi+spl+'_background.fits')*convert
-            fits.writeto(odi+spl+'_photo_objects.fits',pstar,dflyheader,
-			 clobber=True)
-            fits.writeto(bdi+spl+'_photo_background.fits',pback,dflyheader,
-			 clobber=True)
+			convert = dflyheader['kJpADU']
+			pstar = fits.getdata(odi+spl+'_objects.fits')*convert
+			pback = fits.getdata(bdi+spl+'_background.fits')*convert
+			fits.writeto(odi+spl+'_photo_objects.fits',pstar,dflyheader,
+				     clobber=True)
+			fits.writeto(bdi+spl+'_photo_background.fits',pback,dflyheader,
+				     clobber=True)
             
 ################################ CYCLE CORRELTION-FILES #########################
-            for hername in herfiles:
-            	skey = [i for i in spirekeys if i in hername][0]
-                herbeam = SPIRE[skey]
+			for hername in herfiles:
+				skey = [i for i in spirekeys if i in hername][0]
+				herbeam = SPIRE[skey]
 
 ################################ CONVOLUTION #####################################
                 # Create output file names
-                pspl = pname.split('.fits')[0]
-                cname = pspl+'_convto'+str(herbeam)+'.fits'
-                ocname = pspl+'_convto'+str(herbeam)+'_objects.fits'
+				pspl = pname.split('.fits')[0]
+				cname = pspl+'_convto'+str(herbeam)+'.fits'
+				ocname = pspl+'_convto'+str(herbeam)+'_objects.fits'
                 # Do convolution on sky image
-                if (os.path.isfile(pdi+cname) == True and 
-		    GENERATE == False and CONVOLVE == False):
-                    cdata,dflyheader = fits.getdata(pdi+cname,header=True)
-                elif os.path.isfile(pdi+cname) != True or GENERATE == True or CONVOLVE == True:
-                    cdata,dflyheader = resconvolve(pdi+pname,dflybeam,herbeam,
-                                                   outfile = pdi+cname,
-                                                   header = dflyheader)
+				if (os.path.isfile(pdi+cname) == True and 
+				    GENERATE == False and CONVOLVE == False):
+					cdata,dflyheader = fits.getdata(pdi+cname,header=True)
+				elif os.path.isfile(pdi+cname) != True or GENERATE == True or CONVOLVE == True:
+					cdata,dflyheader = resconvolve(pdi+pname,dflybeam,herbeam,
+								       outfile = pdi+cname,
+								       header = dflyheader)
                 # Do convolution on object map
-                if os.path.isfile(odi+ocname) == True and GENERATE == False and CONVOLVE == False:
-                    ocdata,oheader = fits.getdata(odi+ocname,header=True)
-                elif os.path.isfile(odi+ocname) != True or GENERATE == True or CONVOLVE == True:
-                    ocdata,oheader = resconvolve(odi+spl+'_photo_objects.fits',
+				if os.path.isfile(odi+ocname) == True and GENERATE == False and CONVOLVE == False:
+					ocdata,oheader = fits.getdata(odi+ocname,header=True)
+				elif os.path.isfile(odi+ocname) != True or GENERATE == True or CONVOLVE == True:
+					ocdata,oheader = resconvolve(odi+spl+'_photo_objects.fits',
                     						     dflybeam,herbeam,
-                                                 outfile = odi+ocname,
-                                                 header = dflyheader)
-                if dflyheader == 0:
-                    print 'Convolution failed, skipping file'
-                    continue
+								     outfile = odi+ocname,
+								     header = dflyheader)
+				if dflyheader == 0:
+					print 'Convolution failed, skipping file'
+					continue
 
 ################################ MASK #####################################
                 # Set cutoff for mask
-                cutoff = 10*median(ocdata)
+				cutoff = 10*median(ocdata)
                 # Create mask name
-                mspl = cname.split('.fits')[0]
-                mname = mspl+'_mask.fits'
+				mspl = cname.split('.fits')[0]
+				mname = mspl+'_mask.fits'
 
                 # Mask data
-                if os.path.isfile(pdi+mname) == True and GENERATE == False and MASK == False:
-                    mdata,dflyheader = fits.getdata(pdi+mname,header=True)
-                    target = fits.getdata(hername)
-                if os.path.isfile(pdi+mname) != True or GENERATE == True or MASK == True or dflyheader['MASKCUT'] - cutoff > 1e-3:
-                    cdata,target = regrid(pdi+cname,hername)
-                    ocdata,target = regrid(odi+ocname,hername)
-                    mdata,dflyheader = maskdata(cdata,ocdata,cutoff,
-                                                outfile = pdi+mname,
-                                                header = dflyheader)
-		p0 = [2,1,1,1]
-		newr,tempbg,tempps = subBGplane(mdata,target,p0)
-		hheader = fits.getheader(hername)
-		time = Time(dflyheader['DATE'])
-		planefill = zeros((90,360))
-		alt,az,xpix,ypix = getAltAz(tempbg,hheader,time,telescope)
-		alt = alt[0::10000]
-		az = az[0::10000]
-		xpix = xpix[0::10000]
-		ypix = ypix[0::10000]
-		temp = []
-		for i in range(len(xpix)):
-			temp.append(tempbg[ypix[i]][xpix[i]])
-		plt.figure(figsize = (12,10))
-		plt.tripcolor(az,alt,temp,cmap = plt.cm.gray)
-		plt.xlabel('Azimuth [deg]')
-		plt.ylabel('Altitude [deg]')
-		plt.savefig(bdi+mspl+'_bgplane_azalt.png')
-		plt.close()
+				if os.path.isfile(pdi+mname) == True and GENERATE == False and MASK == False:
+					mdata,dflyheader = fits.getdata(pdi+mname,header=True)
+					target = fits.getdata(hername)
+				if os.path.isfile(pdi+mname) != True or GENERATE == True or MASK == True or dflyheader['MASKCUT'] - cutoff > 1e-3:
+					cdata,target = regrid(pdi+cname,hername)
+					ocdata,target = regrid(odi+ocname,hername)
+					mdata,dflyheader = maskdata(cdata,ocdata,cutoff,
+								    outfile = pdi+mname,
+								    header = dflyheader)
+				p0 = [2,1,1,1]
+				newr,tempbg,tempps = subBGplane(mdata,target,p0)
+				hheader = fits.getheader(hername)
+				time = Time(dflyheader['DATE'])
+				planefill = zeros((90,360))
+				alt,az,xpix,ypix = getAltAz(tempbg,hheader,time,telescope)
+				alt = alt[0::10000]
+				az = az[0::10000]
+				xpix = xpix[0::10000]
+				ypix = ypix[0::10000]
+				temp = []
+				for i in range(len(xpix)):
+					temp.append(tempbg[ypix[i]][xpix[i]])
+				plt.figure(figsize = (12,10))
+				plt.tripcolor(az,alt,temp,cmap = plt.cm.gray)
+				plt.xlabel('Azimuth [deg]')
+				plt.ylabel('Altitude [deg]')
+				plt.savefig(bdi+mspl+'_bgplane_azalt.png')
+				plt.close()
 		#plt.plot(xpix,ypix,'ko')
 ################################ RESHAPE #####################################                
-                mspl = mname.split('.fits')[0]
-                ress = np.sqrt((dflybeam/s2f)**2+(herbeam/s2f)**2)
-                r = reshape(mdata,mdata,2*ress)
-                t = reshape(target,mdata,2*ress)
+				mspl = mname.split('.fits')[0]
+				ress = np.sqrt((dflybeam/s2f)**2+(herbeam/s2f)**2)
+				r = reshape(mdata,mdata,2*ress)
+				t = reshape(target,mdata,2*ress)
 
 ################################ REGRID #####################################
-                rname = mspl+'_regrid.fits'
-                hname = hername.split('.fits')[0]
-                hname = hname+'_reshaped.fits'
-                fits.writeto(rdi+rname,r,dflyheader,clobber=True)
+				rname = mspl+'_regrid.fits'
+				hname = hername.split('.fits')[0]
+				hname = hname+'_reshaped.fits'
+				fits.writeto(rdi+rname,r,dflyheader,clobber=True)
 
 ################################ BACK-SUB #####################################
-                rspl = rname.split('.fits')[0]
-                bname = rspl+'_backsub.fits'
-                p0 = [2,1,1,1]
-                newr,bg,ps = subBGplane(r,t,p0)
-                if isinstance(newr,float) != True:
-                    dflyheader['BACKSUB'] = 'TRUE'
-                    fits.writeto(gdi+bname,newr,dflyheader,clobber=True)
-                    fits.writeto(bdi+mspl+'_bgplane.fits',bg,dflyheader,clobber=True)
-                    bspl = bname.split('.fits')[0]
-                    saveloc = sdi+bspl+'_'+skey+'.png'
-                    title = 'Correlation between Dragonfly and Herschel'
-                    xlabel = 'Herschel [MJy/sr]'
-                    ylabel = 'Dragonfly [kJy/sr]'
-                    zlabel = 'Pixels'
-                    labels = [title,xlabel,ylabel,zlabel]
-                    pos = where(r > 0)
-                    H = hist2d(t[pos],newr[pos],50,saveloc,labels = labels)
-                elif isinstance(newr,float) == True:
-                    print 'Failed background subtraction'
-                    continue
-	    print 'Done ', f,'\n\n\n\n\n\n'
+				rspl = rname.split('.fits')[0]
+				bname = rspl+'_backsub.fits'
+				p0 = [2,1,1,1]
+				newr,bg,ps = subBGplane(r,t,p0)
+				if isinstance(newr,float) != True:
+					dflyheader['BACKSUB'] = 'TRUE'
+					fits.writeto(gdi+bname,newr,dflyheader,clobber=True)
+					fits.writeto(bdi+mspl+'_bgplane.fits',bg,dflyheader,clobber=True)
+					bspl = bname.split('.fits')[0]
+					saveloc = sdi+bspl+'_'+skey+'.png'
+					title = 'Correlation between Dragonfly and Herschel'
+					xlabel = 'Herschel [MJy/sr]'
+					ylabel = 'Dragonfly [kJy/sr]'
+					zlabel = 'Pixels'
+					labels = [title,xlabel,ylabel,zlabel]
+					pos = where(r > 0)
+					H = hist2d(t[pos],newr[pos],50,saveloc,labels = labels)
+				elif isinstance(newr,float) == True:
+					print 'Failed background subtraction'
+					continue
+				print 'Done ', f,'\n\n\n\n\n\n'
+		except AssertionError:
+			print 'Calibrated file missing for ',f
+			continue
                 #fits.writeto(hname,t,clobber=True
 
