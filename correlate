@@ -408,7 +408,7 @@ for key in keys:
 ################################ CYCLE FILES ###################################
         for f in files:
 		try:
-			print 'FILE '+ddi+f
+			print 'FILE '+di+f
 			f = f.split('.fits')[0]+'_ds_ff.fits'
             # Confirm calibrated file exists
 			assert os.path.isfile(ddi+f) == True
@@ -569,6 +569,7 @@ for key in keys:
 				newr,bg,ps = subBGplane(r,t,p0)
 				if isinstance(newr,float) != True:
 					dflyheader['BACKSUB'] = 'TRUE'
+					dflyheader['BACKDIF'] = nmax(bg)-nmin(bg)
 					fits.writeto(gdi+bname,newr,dflyheader,clobber=True)
 					fits.writeto(bdi+mspl+'_bgplane.fits',bg,dflyheader,clobber=True)
 					bspl = bname.split('.fits')[0]

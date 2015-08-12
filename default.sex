@@ -17,7 +17,7 @@ DETECT_MINAREA   5              # min. # of pixels above threshold
 DETECT_THRESH    1.5            # <sigmas> or <threshold>,<ZP> in mag.arcsec-2
 ANALYSIS_THRESH  1.5            # <sigmas> or <threshold>,<ZP> in mag.arcsec-2
  
-FILTER           Y              # apply filter for detection (Y or N)?
+FILTER           N              # apply filter for detection (Y or N)?
 FILTER_NAME      default.conv   # name of the file containing the filter
  
 DEBLEND_NTHRESH  32             # Number of deblending sub-thresholds
@@ -58,7 +58,7 @@ PIXEL_SCALE      2.85            # size of pixel in arcsec (0=use FITS WCS info)
  
 #------------------------- Star/Galaxy Separation ----------------------------
  
-SEEING_FWHM      1.2            # stellar FWHM in arcsec
+SEEING_FWHM      2.5            # stellar FWHM in arcsec
 STARNNW_NAME     default.nnw    # Neural-Network_Weight table filename
  
 #------------------------------ Background -----------------------------------

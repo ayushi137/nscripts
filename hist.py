@@ -75,14 +75,6 @@ for objects in camdicts.keys():
         elif colours[objects][serialno] == 'SloanR':
             red.append(camdicts[objects][serialno])
             RED.append(camdicts[objects][serialno])
-        #try:
-        #    plt.hist(camdicts[objects][serialno],bins = 5)
-        #    plt.title(objects+'-'+serialno)
-        #    plt.ylabel('Number')
-        #    plt.xlabel('m_0')
-        #    plt.figure()
-        #except ValueError:
-        #    'Single data point'
     red = [item for sublist in red for item in sublist]
     red = [item for item in red if item < 20]
     green = [item for sublist in green for item in sublist]
