@@ -30,11 +30,13 @@ Options:
     -f FILES, --files FILES        File list
                                    [default: ]
 """
+############################ IMPORT PACKAGES ###################################
 
 import os
 import docopt
 from astropy.io import fits
 
+################################## ARGUMENTS ###################################
 arguments = docopt.docopt(__doc__)
 
 files = arguments['--files']
@@ -53,7 +55,8 @@ GENERATE = arguments['--generate']
 
 if filelist != ['']:
     files = True
-    
+################################## DIRECTORIES #################################
+
 parentdir = updir+'/'+cloud
 calfilesdir = parentdir+'/'+cals+'/'+date
 rawlightsdir = parentdir+'/'+raws+'/'+date
@@ -106,6 +109,8 @@ for di in dis:
             if not os.path.isdir(d):
                 os.makedirs(d)
 
+################################ FILE PROCESSING ###############################
+
 for f in range(len(filelist)):
     if isinstance(rawlightsdir,list):
         rawlights = rawlightsdir[f]
@@ -134,7 +139,7 @@ for f in range(len(filelist)):
     mdarcheck = os.system('ls '+masterdark+'/master_'+serialno+'_dark_'+exptime+'.fits')
     if mdarcheck != 0:
         print 'Missing master darks for image'
-        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        #os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
         continue
     os.system('ls '+calfiles+'/*'+serialno+'*flat.fits > tmp.txt')
     flatfilelist = []
@@ -152,7 +157,7 @@ for f in range(len(filelist)):
             sdarchecks.append(sdarcheck)
     if not all(mdarchecks) < 1:
         print 'Missing master darks for flats'
-        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        #os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
         continue
     sdarcheck = os.system('ls '+darksub+'/'+fname+'_ds.fits')
     if sdarcheck != 0 or GENERATE == True:
@@ -161,7 +166,7 @@ for f in range(len(filelist)):
     sdarcheck = os.system('ls '+darksub+'/'+fname+'_ds.fits')
     if sdarcheck != 0:
         print 'Missing dark subtracted images'
-        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        #os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
         continue
     if not all(sdarchecks) < 1:
         os.system('subtract_masterdarks -v -m '+masterdark+' -o '+ 
@@ -172,17 +177,17 @@ for f in range(len(filelist)):
             line = line.split('.fits')[0]
             sdarcheck = os.system('ls '+darksub+'/'+line+'_ds.fits')
             sdarchecks.append(sdarcheck)
-    if not all(sdarscheck) < 1:
+    if not all(sdarchecks) < 1:
         print 'Missing dark subtracted flats'
-        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        #os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
         continue
-    mflacheck = os.system('ls '+masterflatdir+'/master_'+serialno+'_flat.fits')
+    mflacheck = os.system('ls '+masterflat+'/master_'+serialno+'_flat.fits')
     if mflacheck != 0 or GENERATE == True:
         os.system('create_masterflats -v -o '+masterflat+' '+darksub)
-    mflacheck = os.system('ls '+masterflatdir+'/master_'+serialno+'_flat.fits')
+    mflacheck = os.system('ls '+masterflat+'/master_'+serialno+'_flat.fits')
     if mflacheck != 0:
         print 'Missing master flats'
-        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        #os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
         continue        
     divfcheck = os.system('ls '+fullcal+'/'+fname+'_ds_ff.fits')
     if divfcheck != 0 or GENERATE == True:
@@ -191,6 +196,6 @@ for f in range(len(filelist)):
     divfcheck = os.system('ls '+fullcal+'/'+fname+'_ds_ff.fits')
     if divfcheck != 0:
         print 'Missing flat-divided images'
-        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        #os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
         continue
     

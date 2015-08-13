@@ -1,8 +1,19 @@
 import os
 from astropy.io import fits
+from astropy import wcs
 import matplotlib.pyplot as plt
 from numpy import *
+from astropy.time import Time
+from astropy.coordinates import EarthLocation
 plt.ion()
+
+def airmass(alt):
+    return (1./(sin(alt)+0.50572*(6.07995+alt)**-1.6364))
+
+lat = 32.902836
+long = -105.528350
+height = 2214
+telescope = EarthLocation(lat=lat*u.deg,lon=long*u.deg,height = 2214*u.m)
 
 chosenkey = 'FWHM'
 outputdir = {}
@@ -48,6 +59,13 @@ for key in keys:
                     serialno = f[0:9]
                     expn = f[10:12]
                     header = fits.getheader(pdi+f)
+                    shapearr = zeros((607,437))
+                    time = Time(header['DATE'])
+                    alt,az,x,y = getAltAz(shapearr,header,time,telescope)
+                    midind = where((x == shapearr.shape[1]/2) & 
+                                   (y == shapearr.shape[0]/2))
+                    midalt = alt[midind]
+                    X = airmass(midalt)
                     colour[serialno] = header['FILTNAM']
                     try:
                         datedict[serialno+'_'+expn].append(float(header[chosenkey]))

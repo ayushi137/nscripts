@@ -330,6 +330,7 @@ if not files:
 	for cloud in objects:
 		direc = directory+'/'+cloud+rawdir
 		subdirs = getsubdir(direc)
+		subdirs = [i for i in subdirs if 'all_nights' not in i]
 		objectdates[cloud] = subdirs
 		hdirec = herdir+'/'+cloud
 		os.system('python rewriteherschel.py -d '+hdirec)
