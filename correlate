@@ -292,19 +292,21 @@ if files:
 	datenames = {}
 	objectherfiles = {}
 	breakdown = filelist[0].split('/')
+	breakdown = [i for i in breakdown if i != '']
 	fname = breakdown.pop(-1)
 	date = breakdown.pop(-1)
 	rawdir = '/'+breakdown.pop(-1)+'/'
 	objects = breakdown.pop(-1)
-	directory = '/'.join(breakdown)+'/'
+	directory = '/'+'/'.join(breakdown)+'/'
 	for f in filelist:
 		breakdown = f.split('/')
+		breakdown = [i for i in breakdown if i != '']
 		fname = breakdown.pop(-1)
 		date = breakdown.pop(-1)
 		newrawdir = '/'+breakdown.pop(-1)+'/'
 		assert newrawdir == rawdir
 		cloud = breakdown.pop(-1)
-		newdirectory = '/'.join(breakdown)+'/'
+		newdirectory = '/'+'/'.join(breakdown)+'/'
 		assert newdirectory == directory
 		try:
 			datenames[date].append(fname)
@@ -330,7 +332,7 @@ if not files:
 		subdirs = getsubdir(direc)
 		objectdates[cloud] = subdirs
 		hdirec = herdir+'/'+cloud
-		os.system('python rewriteherschel -d '+hdirec)
+		os.system('python rewriteherschel.py -d '+hdirec)
 		herfiles = os.listdir(hdirec)
 		objectherfiles[cloud] = [hdirec+'/'+i for i in herfiles 
 					 if 'reindex' in i]
@@ -372,12 +374,28 @@ for key in keys:
         print 'DATE '+date
 
 ################################ CALIBRATE #####################################
-        if GENERATE == True and files == False:
-		calcom = './calibratedata.sh {0} {1} {2} {3} '.format(directory,
-								     key,date,
-								     caldir)
-		calcom += '{0} {1} {2} {3} {4}'.format(rawdir,damdir,flmdir,
-						       dsmdir,subdir)
+        fs = datenames[date]
+	if fs == []:
+		continue
+	if GENERATE:
+		if files:
+			calcom = ('python calibratedata -g -f '+
+				  (', ').join(filelist))
+		if not files:
+			calcom = ('python calibratedata -g  -o '+key+
+				  ' -t '+date)
+	if not GENERATE:
+		if files:
+			calcom = ('python calibratedata -f '+
+				  (', ').join(filelist))
+		if not files:
+			calcom = ('python calibratedata -o '+key+
+				  ' -t '+date)
+		#calcom = './calibratedata.sh {0} {1} {2} {3} '.format(directory,
+		#						     key,date,
+		#caldir)
+		#calcom += '{0} {1} {2} {3} {4}'.format(rawdir,damdir,flmdir,
+		#				       dsmdir,subdir)
         	os.system(calcom)
         # Directory containing raw image files
         di = directory+key+rawdir+date+'/'
@@ -403,10 +421,9 @@ for key in keys:
         for d in dirlist:
             if os.path.isdir(directory+key+d+date) == False:
                 os.system('mkdir '+directory+key+d+date+'/')
-        files = datenames[date]
 
 ################################ CYCLE FILES ###################################
-        for f in files:
+        for f in fs:
 		try:
 			print 'FILE '+di+f
 			f = f.split('.fits')[0]+'_ds_ff.fits'
@@ -475,7 +492,10 @@ for key in keys:
 				print 'Photometry failed, skipping file'
 				continue
             # Convert units in object and background map
-			convert = dflyheader['kJpADU']
+			try:
+				convert = dflyheader['kJpADU']
+			except KeyError:
+				continue
 			pstar = fits.getdata(odi+spl+'_objects.fits')*convert
 			pback = fits.getdata(bdi+spl+'_background.fits')*convert
 			fits.writeto(odi+spl+'_photo_objects.fits',pstar,dflyheader,

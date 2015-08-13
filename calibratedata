@@ -1,0 +1,196 @@
+#!/usr/bin/env python
+"""
+Usage:
+calibratedata [-hg] [-u DIRECTORY] [-o OBJECT] [-t DATE] [-c DIRECTORY] 
+              [-r DIRECTORY] [-d DIRECTORY] [-l DIRECTORY] [-s DIRECTORY]
+              [-n DIRECTORY] [-f FILES]
+
+Options:
+    -h, --help
+    -g, --generate                 Generate all files from scratch
+    
+    -u DIRECTORY, --updir DIR      Parent directory
+                                   [default: /mnt/scratch-lustre/njones/SURP2015/dflydata/]
+    -o OBJECT, --cloud DIR         Cloud name
+                                   [default: spi1_1]
+    -t DATE, --date DATE           Date of observation
+                                   [default: 2014-10-31]
+    -c DIRECTORY, --cals DIR       Calibration file directory
+                                   [default: /calframes/]
+    -r DIRECTORY, --raws DIR       Raw images directory
+                                   [default: /raw_lights/]
+    -d DIRECTORY, --mdar DIR       Master darks directory
+                                   [default: /dark_masters/]
+    -l DIRECTORY, --mfla DIR       Master flats directory
+                                   [default: /flat_masters/]
+    -s DIRECTORY, --dsub DIR       Dark subtracted directory
+                                   [default: /dark_subtracted/]
+    -n DIRECTORY, --subs DIR       Calibrated directory
+                                   [default: /darksub_flatfield/]
+    -f FILES, --files FILES        File list
+                                   [default: ]
+"""
+
+import os
+import docopt
+from astropy.io import fits
+
+arguments = docopt.docopt(__doc__)
+
+files = arguments['--files']
+filelist = files.split(', ')
+updir = arguments['--updir']
+cloud = arguments['--cloud']
+date = arguments['--date']
+cals = arguments['--cals']
+raws = arguments['--raws']
+mdar = arguments['--mdar']
+mfla = arguments['--mfla']
+dsub = arguments['--dsub']
+subs = arguments['--subs']
+
+GENERATE = arguments['--generate']
+
+if filelist != ['']:
+    files = True
+    
+parentdir = updir+'/'+cloud
+calfilesdir = parentdir+'/'+cals+'/'+date
+rawlightsdir = parentdir+'/'+raws+'/'+date
+masterdarkdir = parentdir+'/'+mdar+'/'+date
+masterflatdir = parentdir+'/'+mfla+'/'+date
+darksubdir = parentdir+'/'+dsub+'/'+date
+fullcaldir = parentdir+'/'+subs+'/'+date
+badframesdir = '/removedframes/'
+
+if not files:
+    filelist = os.listdir(rawlightsdir)
+    filelist = [rawlightsdir+'/'+f for f in filelist]
+
+if files:
+    calfilesdir = []
+    rawlightsdir = []
+    masterdarkdir = []
+    masterflatdir = []
+    darksubdir = []
+    fullcaldir = []
+    breakdown = filelist[0].split('/')
+    fname = breakdown.pop(-1)
+    date = breakdown.pop(-1)
+    rawdir = '/'+breakdown.pop(-1)+'/'
+    objects = breakdown.pop(-1)
+    parentdir = '/'.join(breakdown)+'/'
+    for f in filelist:
+        breakdown = f.split('/')
+        fname = breakdown.pop(-1)
+        date = breakdown.pop(-1)
+        newrawdir = '/'+breakdown.pop(-1)+'/'
+        cloud = breakdown.pop(-1)
+        newdirectory = '/'.join(breakdown)+'/'
+        assert newdirectory == parentdir
+        calfilesdir.append(parentdir+'/'+cloud+'/'+cals+'/'+date)
+        rawlightsdir.append(parentdir+'/'+cloud+'/'+raws+'/'+date)
+        masterdarkdir.append(parentdir+'/'+cloud+'/'+mdar+'/'+date)
+        masterflatdir.append(parentdir+'/'+cloud+'/'+mfla+'/'+date)
+        darksubdir.append(parentdir+'/'+cloud+'/'+dsub+'/'+date)
+        fullcaldir.append(parentdir+'/'+cloud+'/'+subs+'/'+date)
+    
+
+dis = [masterdarkdir,masterflatdir,darksubdir,fullcaldir]
+for di in dis:
+    if isinstance(di,str):
+        if not os.path.isdir(di):
+            os.makedirs(di)
+    elif isinstance(di,list):
+        for d in di:
+            if not os.path.isdir(d):
+                os.makedirs(d)
+
+for f in range(len(filelist)):
+    if isinstance(rawlightsdir,list):
+        rawlights = rawlightsdir[f]
+        masterdark = masterdarkdir[f]
+        masterflat = masterflatdir[f]
+        darksub = darksubdir[f]
+        calfiles = calfilesdir[f]
+        fullcal = fullcaldir[f]
+    elif isinstance(rawlightsdir,str):
+        rawlights = rawlightsdir
+        masterdark = masterdarkdir
+        masterflat = masterflatdir
+        darksub = darksubdir
+        calfiles = calfilesdir
+        fullcal = fullcaldir
+    if os.path.isdir(rawlights+'/'+badframesdir) == False:
+        os.makedirs(rawlights+'/'+badframesdir)
+    header = fits.getheader(filelist[f])
+    fname = filelist[f].split('/')[-1]
+    fname = fname.split('.fits')[0]
+    serialno = header['SERIALNO']
+    exptime = str(header['EXPTIME'])
+    mdarcheck = os.system('ls '+masterdark+'/master_'+serialno+'_dark_'+exptime+'.fits')
+    if mdarcheck != 0 or GENERATE ==True:
+        os.system('create_masterdarks -v -o '+masterdark+' '+calfiles)
+    mdarcheck = os.system('ls '+masterdark+'/master_'+serialno+'_dark_'+exptime+'.fits')
+    if mdarcheck != 0:
+        print 'Missing master darks for image'
+        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        continue
+    os.system('ls '+calfiles+'/*'+serialno+'*flat.fits > tmp.txt')
+    flatfilelist = []
+    mdarchecks = []
+    sdarchecks = []
+    with open('tmp.txt') as t:
+        for line in t:
+            line = line.split('/')[-1]
+            line = line.split('.fits')[0]
+            theader = fits.getheader(calfiles+'/'+line+'.fits')
+            texptime = str(theader['EXPTIME'])
+            mdarcheck = os.system('ls '+masterdark+'/master_'+serialno+'_dark_'+texptime+'.fits')
+            mdarchecks.append(mdarcheck)
+            sdarcheck = os.system('ls '+darksub+'/'+line+'_ds.fits')
+            sdarchecks.append(sdarcheck)
+    if not all(mdarchecks) < 1:
+        print 'Missing master darks for flats'
+        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        continue
+    sdarcheck = os.system('ls '+darksub+'/'+fname+'_ds.fits')
+    if sdarcheck != 0 or GENERATE == True:
+        os.system('subtract_masterdarks -v -m '+masterdark+' -o '+
+                  darksub+' '+rawlights)
+    sdarcheck = os.system('ls '+darksub+'/'+fname+'_ds.fits')
+    if sdarcheck != 0:
+        print 'Missing dark subtracted images'
+        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        continue
+    if not all(sdarchecks) < 1:
+        os.system('subtract_masterdarks -v -m '+masterdark+' -o '+ 
+                  darksub+' '+calfiles)
+    with open('tmp.txt') as t:
+        for line in t:
+            line = line.split('/')[-1]
+            line = line.split('.fits')[0]
+            sdarcheck = os.system('ls '+darksub+'/'+line+'_ds.fits')
+            sdarchecks.append(sdarcheck)
+    if not all(sdarscheck) < 1:
+        print 'Missing dark subtracted flats'
+        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        continue
+    mflacheck = os.system('ls '+masterflatdir+'/master_'+serialno+'_flat.fits')
+    if mflacheck != 0 or GENERATE == True:
+        os.system('create_masterflats -v -o '+masterflat+' '+darksub)
+    mflacheck = os.system('ls '+masterflatdir+'/master_'+serialno+'_flat.fits')
+    if mflacheck != 0:
+        print 'Missing master flats'
+        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        continue        
+    divfcheck = os.system('ls '+fullcal+'/'+fname+'_ds_ff.fits')
+    if divfcheck != 0 or GENERATE == True:
+        os.system('divideby_masterflats -v -m '+masterflat+' -o '+
+                  fullcal+' '+darksub)
+    divfcheck = os.system('ls '+fullcal+'/'+fname+'_ds_ff.fits')
+    if divfcheck != 0:
+        print 'Missing flat-divided images'
+        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        continue
+    
