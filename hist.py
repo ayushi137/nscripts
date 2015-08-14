@@ -3,12 +3,22 @@ from astropy.io import fits
 from astropy import wcs
 import matplotlib.pyplot as plt
 from numpy import *
+from cartesian import cartesian
 from astropy.time import Time
-from astropy.coordinates import EarthLocation
+from astropy import units as u
+from astropy.coordinates import EarthLocation, SkyCoord, AltAz
 plt.ion()
 
+def getAltAz(arr,header,time,location):
+	soln = wcs.WCS(header)
+	coords = cartesian([arange(arr.shape[1]),arange(arr.shape[0])])
+	world = soln.wcs_pix2world(coords,0)
+	radec = SkyCoord(ra=world[:,0],dec=world[:,1],frame='icrs',unit='deg')
+	altaz = radec.transform_to(AltAz(obstime=time,location=telescope))
+	return altaz.alt.deg,altaz.az.deg,coords[:,0],coords[:,1]
+
 def airmass(alt):
-    return (1./(sin(alt)+0.50572*(6.07995+alt)**-1.6364))
+    return (1./(sin(alt*(pi/180.))+0.50572*(6.07995+alt)**-1.6364))
 
 lat = 32.902836
 long = -105.528350
@@ -38,6 +48,7 @@ keys = objectdates.keys()
 datedicts = {}
 camdicts = {}
 colours = {}
+totalstats = []
 for key in keys:
     print 'OBJECT '+key
     dates = objectdates[key]
@@ -75,6 +86,10 @@ for key in keys:
                         camdict[serialno].append(float(header[chosenkey]))
                     except (KeyError,NameError):
                         camdict[serialno] = [float(header[chosenkey])]
+                    row = [key,str(time.jd),serialno,header['FILTNAM'],expn,
+                           str(midalt[0]), str(X[0]),str(header['M0']),
+                           str(header['FWHM'])]
+                    totalstats.append(row)
                 except KeyError:
                     continue
         datedicts[date] = datedict
@@ -115,6 +130,10 @@ for objects in camdicts.keys():
     except ValueError:
         continue
 
+T = array(totalstats)
+
+savetxt('stats.txt',T,fmt='%s')
+
 RED = array([item for sublist in RED for item in sublist])
 RED = array([item for item in RED if item < 20])
 GREEN = array([item for sublist in GREEN for item in sublist])
@@ -134,3 +153,41 @@ plt.ylabel('Number')
 plt.xlabel(xlabels[chosenkey])
 plt.savefig(outputdir[chosenkey]+'greencams.png')
 plt.close()
+
+objects = T[:,0]
+times = T[:,1].astype(float)
+serials = T[:,2]
+colours = T[:,3]
+expns = T[:,4]
+altitudes = T[:,5].astype(float)
+airmasses = T[:,6].astype(float)
+m0s = T[:,7].astype(float)
+seeings = T[:,8].astype(float)
+
+spi = where(objects == 'spi1_1')
+dra = where(objects == 'PGM_1_2')
+
+keys = {}
+keys['spi'] = spi
+keys['dra'] = dra
+names = {}
+names['spi'] = 'Spider'
+names['dra'] = 'Draco'
+for key in names.keys():
+
+#SPIDER
+    plt.figure()
+    plt.plot(times[keys[key]],m0s[keys[key]],'.')
+    plt.xlabel('Time [JD]')
+    plt.ylabel('$m_0$')
+    plt.title(names[key])
+    plt.figure()
+    plt.plot(times[keys[key]],seeings[keys[key]],'.')
+    plt.xlabel('Time [JD]')
+    plt.ylabel('FWHM')
+    plt.title(names[key])
+    plt.figure()
+    plt.plot(m0s[keys[key]],seeings[keys[key]],'.')
+    plt.xlabel('$m_0$')
+    plt.ylabel('FWHM')
+    plt.title(names[key])

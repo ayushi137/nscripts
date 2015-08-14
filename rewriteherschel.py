@@ -1,6 +1,4 @@
-from astropy.io import fits
-import docopt
-import os
+#!/usr/bin/env python
 
 """
 To reindex Herschel files, making them more Python friendly.
@@ -15,6 +13,10 @@ Options:
     -d DIRECTORY, --dir DIRECTORY   Choose directory with Herschel files     
 
 """
+
+from astropy.io import fits
+import docopt
+import os
 
 arguments = docopt.docopt(__doc__)
 

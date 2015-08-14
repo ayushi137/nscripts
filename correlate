@@ -317,7 +317,7 @@ if files:
 		except KeyError:
 			objectdates[cloud] = [date]
 		hdirec = herdir+'/'+cloud
-		os.system('python rewriteherschel -d '+hdirec)
+		#os.system('python rewriteherschel -d '+hdirec)
 		herfiles = os.listdir(hdirec)
 		objectherfiles[cloud] = [hdirec+'/'+i for i in herfiles 
 					 if 'reindex' in i]
@@ -333,7 +333,7 @@ if not files:
 		subdirs = [i for i in subdirs if 'all_nights' not in i]
 		objectdates[cloud] = subdirs
 		hdirec = herdir+'/'+cloud
-		os.system('python rewriteherschel.py -d '+hdirec)
+		#os.system('python rewriteherschel.py -d '+hdirec)
 		herfiles = os.listdir(hdirec)
 		objectherfiles[cloud] = [hdirec+'/'+i for i in herfiles 
 					 if 'reindex' in i]
