@@ -88,7 +88,7 @@ for key in keys:
                         camdict[serialno] = [float(header[chosenkey])]
                     row = [key,str(time.jd),serialno,header['FILTNAM'],expn,
                            str(midalt[0]), str(X[0]),str(header['M0']),
-                           str(header['FWHM'])]
+                           str(header['FWHM']),str(date)]
                     totalstats.append(row)
                 except KeyError:
                     continue
