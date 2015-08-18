@@ -33,8 +33,8 @@ xlabels = {}
 xlabels['M0'] = 'm0'
 xlabels['FWHM'] = 'fwhm ["]'
 
-directory = '/mnt/gfsproject/naiad/njones/moddragonflydata/'
-subdir = '/NCalibrated/'
+directory = '/mnt/scratch-lustre/njones/SURP2015/dflydata/'
+subdir = '/darksub_flatfield/'
 outdir = '/backgroundsub/'
 magdir = '/magnitudecalcs/'
 
