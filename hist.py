@@ -88,7 +88,7 @@ for key in keys:
                         camdict[serialno] = [float(header[chosenkey])]
                     row = [key,str(time.jd),serialno,header['FILTNAM'],expn,
                            str(midalt[0]), str(X[0]),str(header['M0']),
-                           str(header['FWHM']),str(date)]
+                           str(header['FWHM']),str(date),str(header['SLOPE'])]
                     totalstats.append(row)
                 except KeyError:
                     continue
@@ -132,7 +132,7 @@ for objects in camdicts.keys():
 
 T = array(totalstats)
 
-savetxt('stats.txt',T,fmt='%s')
+savetxt('stats/stats.txt',T,fmt='%s')
 
 RED = array([item for sublist in RED for item in sublist])
 RED = array([item for item in RED if item < 20])

@@ -591,6 +591,7 @@ for key in keys:
 				if isinstance(newr,float) != True:
 					dflyheader['BACKSUB'] = 'TRUE'
 					dflyheader['BACKDIF'] = nmax(bg)-nmin(bg)
+					dflyheader['SLOPE'] = ps[0]
 					fits.writeto(gdi+bname,newr,dflyheader,clobber=True)
 					fits.writeto(bdi+mspl+'_bgplane.fits',bg,dflyheader,clobber=True)
 					bspl = bname.split('.fits')[0]
