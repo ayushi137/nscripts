@@ -2,7 +2,7 @@ from numpy import *
 import matplotlib.pyplot as plt
 plt.ion()
 
-outlierremove = False
+outlierremove = True
 
 stats = loadtxt('stats/stats.txt',dtype = 'str')
 
