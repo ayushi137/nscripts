@@ -1,5 +1,6 @@
 from numpy import *
 import matplotlib.pyplot as plt
+import numpy as np
 plt.ion()
 
 outlierremove = True
@@ -16,6 +17,20 @@ airmasses = stats[:,6].astype(float)
 m0s = stats[:,7].astype(float)
 fwhms = stats[:,8].astype(float)
 dates = stats[:,9]
+slopes = stats[:,10].astype(float)
+
+order = times.argsort()
+objects = objects[order]
+times = times[order]
+serials = serials[order]
+colours = colours[order]
+expns = expns[order]
+altitudes = altitudes[order]
+airmasses = airmasses[order]
+m0s = m0s[order]
+fwhms = fwhms[order]
+dates = dates[order]
+slopes = slopes[order]
 
 spi = where(objects == 'spi1_1')
 dra = where(objects == 'PGM_1_2')
@@ -30,37 +45,57 @@ names['dra'] = 'Draco'
 
 figinds = {}
 figinds['spi'] = 0
-figinds['dra'] = 5
+figinds['dra'] = 6
 
 reds = ['r','lightcoral','darkred','darkorange','indianred']
 greens = ['g','lime','darkgreen','darkseagreen','greenyellow']
 
 for key in names.keys():
+	if key == 'dra':
+		daydiv = 0.1
+	if key == 'spi':
+		daydiv = 0.05
 	serial = serials[inds[key]]
 	colour = colours[inds[key]]
 	m0 = m0s[inds[key]]
 	am = airmasses[inds[key]]
 	fwhm = fwhms[inds[key]]
 	time = times[inds[key]]
+	time -= np.min(time)
 	date = dates[inds[key]]
+	slope = slopes[inds[key]]
+	diff = abs(roll(time,1)-time)
+	transition = where(diff > 0.1)
+	transition = delete(transition, 0)
+	daysplits = []
+	for t in transition:
+		indstochange = arange(t,len(time))
+		for j in indstochange:
+			time[j] -= diff[t]
+			time[j] += daydiv
+		try:
+			daysplits.append(0.5*(time[t]-time[t-1])+time[t-1])
+		except IndexError:
+			continue
 	if outlierremove:
-		good = where((fwhm < 30) & (m0 > 26.5))
+		good = where((fwhm < 30) & (m0 > 26.5))# & (slope > 0.5) & (slope < 4))
 		serial = serial[good]
 		colour = colour[good]
 		m0 = m0[good]
 		am = am[good]
 		fwhm = fwhm[good]
 		time = time[good]
+		slope = slope[good]
 	cams = unique(serial)
 	cr = 0
 	cg = 0
 	plt.figure(1+figinds[key],figsize = (10,8))
 	plt.title(names[key])
-	plt.xlabel('Time [Exposure Number]')
+	plt.xlabel('Time')
 	plt.ylabel('$m_0$',fontsize = 20)
 	plt.figure(2+figinds[key],figsize = (10,8))
 	plt.title(names[key])
-	plt.xlabel('Time [Exposure Number]')
+	plt.xlabel('Time')
 	plt.ylabel('FWHM ["]')
 	plt.figure(3+figinds[key],figsize = (10,8))
 	plt.title(names[key])
@@ -73,7 +108,11 @@ for key in names.keys():
 	plt.figure(5+figinds[key],figsize = (10,8))
 	plt.title(names[key])	
 	plt.xlabel('Airmass')
-	plt.ylabel('$m_0$',fontsize = 20)	
+	plt.ylabel('$m_0$',fontsize = 20)
+	plt.figure(6+figinds[key],figsize = (10,8))
+	plt.title(names[key])	
+	plt.xlabel('Time')
+	plt.ylabel('Slope')
 	for cam in cams:
 		i = where(cam == serial)
 		c = colour[i][0]
@@ -83,44 +122,58 @@ for key in names.keys():
 		elif c == 'SloanR':
 			color = reds[cr]
 			cr += 1
-		order = time[i].argsort()
 		plt.figure(1+figinds[key])
-		plt.plot(m0[i][order],'o',color = color,markersize = 10,label = cam)
+		plt.plot(time[i],m0[i],'o',color = color,markersize = 10,label = cam)
 		plt.figure(2+figinds[key])
-		plt.plot(fwhm[i][order],'o',color = color,markersize = 10,label = cam)
+		plt.plot(time[i],fwhm[i],'o',color = color,markersize = 10,label = cam)
 		plt.figure(3+figinds[key])
 		plt.plot(fwhm[i],m0[i],'o',color = color,markersize = 10,label = cam)
 		plt.figure(4+figinds[key])
 		plt.plot(am[i],fwhm[i],'o',color = color,markersize = 10,label = cam)
 		plt.figure(5+figinds[key])
 		plt.plot(am[i],m0[i],'o',color = color,markersize = 10,label = cam)
+		plt.figure(6+figinds[key])
+		plt.plot(time[i],slope[i],'o',color=color,markersize = 10,label = cam)
+	for day in daysplits:
+		plt.figure(1+figinds[key])
+		plt.axvline(day,color='k',linewidth = 4)
+		plt.figure(2+figinds[key])
+		plt.axvline(day,color='k',linewidth = 4)
+		plt.figure(6+figinds[key])
+		plt.axvline(day,color='k',linewidth = 4)
 	plt.figure(1+figinds[key])
-	plt.legend(loc = 'best')
+	plt.legend(loc = 'best',fontsize = 10)
 	if not outlierremove:
 		plt.savefig('stats/{0}_m0_time.png'.format(names[key]))
 	if outlierremove:
 		plt.savefig('stats/no_out_{0}_m0_time.png'.format(names[key]))
 	plt.figure(2+figinds[key])
-	plt.legend(loc = 'best')
+	plt.legend(loc = 'best',fontsize = 10)
 	if not outlierremove:
 		plt.savefig('stats/{0}_FWHM_time.png'.format(names[key]))
 	if outlierremove:
 		plt.savefig('stats/no_out_{0}_FWHM_time.png'.format(names[key]))
 	plt.figure(3+figinds[key])
-	plt.legend(loc = 'best')
+	plt.legend(loc = 'best',fontsize = 10)
 	if not outlierremove:
 		plt.savefig('stats/{0}_FWHM_m0.png'.format(names[key]))
 	if outlierremove:
 		plt.savefig('stats/no_out_{0}_FWHM_m0.png'.format(names[key]))
 	plt.figure(4+figinds[key])
-	plt.legend(loc = 'best')
+	plt.legend(loc = 'best',fontsize = 10)
 	if not outlierremove:
 		plt.savefig('stats/{0}_airmass_FWHM.png'.format(names[key]))
 	if outlierremove:
 		plt.savefig('stats/no_out_{0}_airmass_FWHM.png'.format(names[key]))
 	plt.figure(5+figinds[key])
-	plt.legend(loc = 'best')
+	plt.legend(loc = 'best',fontsize = 10)
 	if not outlierremove:
 		plt.savefig('stats/{0}_airmass_m0.png'.format(names[key]))
 	if outlierremove:
 		plt.savefig('stats/no_out_{0}_airmass_m0.png'.format(names[key]))
+	plt.figure(6+figinds[key])
+	plt.legend(loc = 'best',fontsize = 10)
+	if not outlierremove:
+		plt.savefig('stats/{0}_slope_time.png'.format(names[key]))
+	if outlierremove:
+		plt.savefig('stats/no_out_{0}_slope_time.png'.format(names[key]))
