@@ -227,7 +227,7 @@ def sexcall(f,ddi,odi,cdi,bdi):
 	os.system(objsexcall)
 	os.system(baksexcall)
 
-def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[]):
+def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1):
 	"""
 	Creates a 2D histogram from data given by numpy's histogram
 
@@ -268,6 +268,10 @@ def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[]):
 	# Use logscale
 	plt.pcolormesh(xedges,yedges,Hmasked,
 	               norm = LogNorm(vmin = Hmasked.min(),vmax = Hmasked.max()))
+	uplim = nmax(x)
+	dolim = nmin(x)
+	x_range = arange(dolim,uplim)
+	plt.plot(x_range,slope*x_range,'k',linewidth = 5)
 	cbar = plt.colorbar()
 	# Add labels
 	if labels != []:
@@ -378,14 +382,16 @@ for key in keys:
         fs = datenames[date]
 	if fs == []:
 		continue
-	if GENERATE:
+	if GENERATE or CALIBRATE:
+		print 'Generate calibration files'
 		if files:
 			calcom = ('python calibratedata -g -f '+
 				  (', ').join(filelist))
 		if not files:
 			calcom = ('python calibratedata -g  -o '+key+
 				  ' -t '+date)
-	if not GENERATE:
+	if not GENERATE and not CALIBRATE:
+		print 'Check for calibration files'
 		if files:
 			calcom = ('python calibratedata -f '+
 				  (', ').join(filelist))
@@ -398,6 +404,7 @@ for key in keys:
 		#calcom += '{0} {1} {2} {3} {4}'.format(rawdir,damdir,flmdir,
 		#				       dsmdir,subdir)
         	os.system(calcom)
+	print 'Create directories'
         # Directory containing raw image files
         di = directory+key+rawdir+date+'/'
         # Directory containing dark subtracted and flat fielded files
@@ -434,8 +441,10 @@ for key in keys:
 
 ################################ ASTROMETRY ####################################
 			if GENERATE==True or ASTROMETRY==True:
+				print 'Do astrometry'
 				callastrometry(ddi+f,generate=True)
 			else:
+				print 'Check for astrometry necessity'
 				callastrometry(ddi+f)
 
 ################################ SEXTRACTOR ####################################
@@ -536,7 +545,10 @@ for key in keys:
 
 ################################ MASK #####################################
                 # Set cutoff for mask
-				cutoff = 10*median(ocdata)
+				focdata = ocdata.flatten()
+				focdata = sort(focdata)
+				medi = focdata[len(focdata)/2]
+				cutoff = 10*medi
                 # Create mask name
 				mspl = cname.split('.fits')[0]
 				mname = mspl+'_mask.fits'
@@ -602,7 +614,7 @@ for key in keys:
 					zlabel = 'Pixels'
 					labels = [title,xlabel,ylabel,zlabel]
 					pos = where(r > 0)
-					H = hist2d(t[pos],newr[pos],50,saveloc,labels = labels)
+					H = hist2d(t[pos],newr[pos],50,saveloc=saveloc,labels = labels,slope = ps[0])
 				elif isinstance(newr,float) == True:
 					print 'Failed background subtraction'
 					continue
