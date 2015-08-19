@@ -262,6 +262,9 @@ def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1):
 	H = flipud(H)
 	# Mask zero value bins
 	Hmasked = ma.masked_where(H==0,H)
+	# Find averages:
+	for j in range(len(xedges)-1):
+		
 
 	# Begin creating figure
 	plt.figure(figsize=(12,10))
