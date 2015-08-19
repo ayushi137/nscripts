@@ -282,8 +282,8 @@ def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1):
 	uplim = nmax(x)
 	dolim = nmin(x)
 	x_range = arange(dolim,uplim)
-	plt.plot(x_range,slope*x_range,'k',linewidth = 5)
-	plt.errorbar(xposs,yavgs,yerr = ystds,fmt = '+',color='w')
+	plt.plot(x_range,slope*x_range,'w',linewidth = 5)
+	plt.errorbar(xposs,yavgs,yerr = ystds,fmt = '+',color='k',markersize = 3)
 	cbar = plt.colorbar()
 	# Add labels
 	if labels != []:
