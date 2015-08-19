@@ -263,9 +263,17 @@ def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1):
 	# Mask zero value bins
 	Hmasked = ma.masked_where(H==0,H)
 	# Find averages:
+	yavgs = []
+	ystds = []
+	xposs = []
 	for j in range(len(xedges)-1):
-		
-
+		toavg = where((x > xedges[j]) & (x < xedges[j+1]))
+		xpos = np.mean(x[toavg])
+		yavg = np.mean(y[toavg])
+		ystd = np.std(y[toavg])
+		xposs.append(xpos)
+		yavgs.append(yavg)
+		ystds.append(ystd)
 	# Begin creating figure
 	plt.figure(figsize=(12,10))
 	# Use logscale
@@ -275,6 +283,7 @@ def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1):
 	dolim = nmin(x)
 	x_range = arange(dolim,uplim)
 	plt.plot(x_range,slope*x_range,'k',linewidth = 5)
+	plt.errorbar(xposs,yavgs,yerr = ystds,fmt = '+',color='w')
 	cbar = plt.colorbar()
 	# Add labels
 	if labels != []:
