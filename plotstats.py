@@ -1,6 +1,15 @@
 from numpy import *
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.optimize import leastsq
+
+def m0am(p,am):
+	m,b = p
+	return m*am + b
+
+def residuals(p,am,m0):
+	return abs(m0-m0am(p,am))
+
 plt.ion()
 
 outlierremove = True
@@ -86,6 +95,7 @@ for key in names.keys():
 		fwhm = fwhm[good]
 		time = time[good]
 		slope = slope[good]
+		date = date[good]
 	cams = unique(serial)
 	cr = 0
 	cg = 0
@@ -177,3 +187,29 @@ for key in names.keys():
 		plt.savefig('stats/{0}_slope_time.png'.format(names[key]))
 	if outlierremove:
 		plt.savefig('stats/no_out_{0}_slope_time.png'.format(names[key]))
+	plt.close('all')
+	for d in date:
+		greenm0s = m0[where((colour == 'SloanG') & (date == d))]
+		greenams = am[where((colour == 'SloanG') & (date == d))]
+		redm0s = m0[where((colour == 'SloanR') & (date == d))]
+		redams = am[where((colour == 'SloanR') & (date == d))]
+		p0green = [-0.14,27.5]
+		p0red = [-0.11,27.3]
+		if len(greenm0s) != 1 and len(redm0s) != 1:
+			pgreen = leastsq(residuals,p0green,args = (greenams,greenm0s))
+			pred = leastsq(residuals,p0red,args = (redams,redm0s))
+			amls = arange(np.min(am),np.max(am),0.01)
+			plt.figure()
+			plt.plot(greenams,greenm0s,'go',markersize = 10,label = 'k = {0}'.format(pgreen[0][0]))
+			plt.plot(amls,m0am(pgreen[0],amls),'k',linewidth = 3)
+			plt.plot(redams,redm0s,'ro',markersize = 10,label = 'k = {0}'.format(pred[0][0]))
+			plt.plot(amls,m0am(pred[0],amls),'k',linewidth = 3)
+			plt.xlabel('Airmass')
+			plt.ylabel('$m_0$',fontsize = 20)
+			plt.title(names[key])
+			plt.legend(loc = 'best')
+			plt.savefig('stats/{0}_{1}_extinction.png'.format(names[key],d))
+			plt.close()
+			print names[key]
+			print 'Green ',pgreen[0]
+			print 'Red ',pred[0]
