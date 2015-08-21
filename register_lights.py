@@ -168,27 +168,27 @@ if __name__ == "__main__":
     detect_thresh = 50
 
     # Create a config, param, conv, nnw file for Sextractor
-    sextractor_config_name = "/tmp/scamp.sex"
-    params_name = "/tmp/scamp.param"
-    nnw_name = "/tmp/default.nnw"
-    conv_name = "/tmp/default.conv"
+    sextractor_config_name = "tmp/scamp.sex"
+    params_name = "tmp/scamp.param"
+    nnw_name = "tmp/default.nnw"
+    conv_name = "tmp/default.conv"
 
     if verbose:
         verbose_type = "NORMAL"
     else:
         verbose_type = "QUIET"
 
-    fp = open(sextractor_config_name, "w")
+    fp = open(sextractor_config_name, "w+")
     fp.write(sextractor_config.format(detect_thresh=detect_thresh, filter_name=conv_name,
         parameters_name=params_name, starnnw_name=nnw_name, verbose_type=verbose_type))
     fp.close()
-    fp = open(params_name, "w")
+    fp = open(params_name, "w+")
     fp.write(scamp_params)
     fp.close()
-    fp = open(conv_name, "w")
+    fp = open(conv_name, "w+")
     fp.write(default_conv)
     fp.close()
-    fp = open(nnw_name, "w")
+    fp = open(nnw_name, "w+")
     fp.write(default_nnw)
     fp.close()
 
@@ -199,8 +199,8 @@ if __name__ == "__main__":
     headers = [re.sub('.fits$', '.head', image) for image in images]
 
     for image, catalog in zip(images, catalogs):
-        print image
-        subprocess.call(sexloc+" -c {config} -CATALOG_NAME {catalog} {image}".format(config=sextractor_config_name, catalog=catalog, image=image), shell=True)
+        print sexloc+" -c {config} -CATALOG_NAME {catalog} {image}".format(config=sextractor_config_name, catalog=catalog, image=image)
+        subprocess.call(sexloc+" -c {config} -CATALOG_NAME {catalog} -CATALOG_TYPE FITS_LDAC {image}".format(config=sextractor_config_name, catalog=catalog, image=image), shell=True)
 
     if verbose:
         print ""
@@ -208,26 +208,26 @@ if __name__ == "__main__":
         print ""
 
     # Create a default SCAMP config file
-    scamp_config_name = "/tmp/default.scamp"
+    scamp_config_name = "tmp/default.scamp"
     subprocess.call(scamploc+" -d > {config}".format(config=scamp_config_name), shell=True)
 
     # Create a default SWARP config file
-    swarp_config_name = "/tmp/default.swarp"
+    swarp_config_name = "tmp/default.swarp"
     subprocess.call(swarploc+" -d > {config}".format(config=swarp_config_name), shell=True)
 
     # Create individual scamped and registered frames
-    scamp_command = scamploc+" -c {config} -ASTREF_CATALOG USNO-B1 -VERBOSE_TYPE FULL "
+    scamp_command = scamploc+" -c {0} -ASTREF_CATALOG USNO-B1 -VERBOSE_TYPE FULL "
     scamp_command = scamp_command + "-PROJECTION_TYPE TAN -SOLVE_PHOTOM N -MAGZERO_KEY ZP -PHOTINSTRU_KEY FILTNAM "
-    scamp_command = scamp_command + "-CHECKPLOT_DEV PDF -CHECKPLOT_NAME phot_zp -CHECKPLOT_TYPE PHOT_ZPCORR {catalog}"
+    scamp_command = scamp_command + "-CHECKPLOT_DEV PDF -CHECKPLOT_NAME phot_zp -CHECKPLOT_TYPE PHOT_ZPCORR {1}"
     swarp_command = swarploc+" -c /tmp/default.swarp -COPY_KEYWORDS TARGET,FILTNAM,SERIALNO,"
     swarp_command = swarp_command + "ALTITUDE,AZIMUTH,ZP,ZPRMS,ZPNGOOD,ZPNREJ,FWHM,SSIGMA,NOBJ,AXRATIO,"
     swarp_command = swarp_command + "AXRRMS,THMEAN,THRMS,SKYLVL,SKYRMS,SKYSB,DATE -SUBTRACT_BACK N "
     swarp_command = swarp_command + " -RESAMPLING_TYPE "+interp+" -OVERSAMPLING 0"
     swarp_command = swarp_command + " -PIXELSCALE_TYPE MANUAL -PIXEL_SCALE 2.0 -FSCALASTRO_TYPE VARIABLE"
-    swarp_command = swarp_command + " -IMAGEOUT_NAME {0:s} {1:s}"
+    swarp_command = swarp_command + " -IMAGEOUT_NAME {0} {1}"
     for image, catalog in zip(images, catalogs):
         # scamp
-        subprocess.call(scamp_command.format(config=scamp_config_name,catalog=catalog),shell=True)
+        subprocess.call(scamp_command.format(scamp_config_name,catalog),shell=True)
         # Move scamp outputs
         for scampfile in glob.glob('*.png'):
             moveit(scampfile,output_directory+'/scampout/')
@@ -238,6 +238,7 @@ if __name__ == "__main__":
         subprocess.call(swarp_command.format(registered_image, image), shell=True)
 
     # Create a stack
+    '''
     stack_name = "coadd.fits"
     stack_name = os.path.join(output_directory, stack_name)
     swarp_command = swarploc+" -c /tmp/default.swarp -COPY_KEYWORDS TARGET,FILTNAM,SERIALNO"
@@ -247,14 +248,15 @@ if __name__ == "__main__":
     swarp_command = swarp_command + " -PIXELSCALE_TYPE MANUAL -PIXEL_SCALE 2.0 -FSCALASTRO_TYPE VARIABLE"
     swarp_command = swarp_command + " -IMAGEOUT_NAME {0:s} {1:s}"
     subprocess.call(swarp_command.format(stack_name, " ".join(images)), shell=True)
-
+    '''
     # Cleanup
     #for catalog in catalogs: os.remove(catalog)
     #for header in headers: os.remove(header)
+    '''
     os.remove(sextractor_config_name)
     os.remove(params_name)
     os.remove(nnw_name)
     os.remove(conv_name)
     os.remove(scamp_config_name)
     os.remove(swarp_config_name)
-
+    '''

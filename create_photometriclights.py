@@ -20,7 +20,7 @@ Options:
     -Y NUMBER, --ymax NUMBER
     -m NUMBER, --magmin NUMBER
     -t NUMBER, --threshold NUMBER               Number of sigma to threshold [default: 10]
-    -r DIRECTORY, --refcat DIRECTORY            The directory containing the reference APASS catalogs [default: /mnt/gfsproject/naiad/jlzhang/APASS/]
+    -r DIRECTORY, --refcat DIRECTORY            The directory containing the reference APASS catalogs [default: /mnt/gfsproject/naiad/jlzhang/dragonfly/APASS/]
     -s LOCATION, --sex LOCATION                 Location of SExtractor executable [default: /opt/sextractor/2.8.6/bin/sex]
     -o DIRECTORY, --outputdir DIRECTORY         Output directory name  [default: .]
     -k, --kfit                                  Correct for the colour term
@@ -106,7 +106,6 @@ def SelectAPASSFile(declination,apass_dir):
     # We remainder declination range is in DR7; 
     if declination > 0 and declination < 20:
         apass_file = apass_dir + "zp%s_7.sum" % file_stub
-
     if os.path.isfile(apass_file):
         return(apass_file)
     else:
