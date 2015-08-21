@@ -64,7 +64,7 @@ for key in keys:
         files.sort()
         datedict = {}
         for f in files:
-            if '35.2' not in f and '17.6' not in f:
+            if '35.2' not in f and '17.6' not in f and 'mask0.1' in f:
                 try:
                     print 'FILE ',pdi+f
                     serialno = f[0:9]

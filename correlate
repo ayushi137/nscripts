@@ -263,18 +263,30 @@ def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1):
 	# Mask zero value bins
 	Hmasked = ma.masked_where(H==0,H)
 	# Find averages:
+	yavgs = []
+	ystds = []
+	xposs = []
 	for j in range(len(xedges)-1):
-		
-
+		toavg = where((x > xedges[j]) & (x < xedges[j+1]))
+		xpos = np.mean(x[toavg])
+		yavg = np.mean(y[toavg])
+		ystd = np.std(y[toavg])
+		xposs.append(xpos)
+		yavgs.append(yavg)
+		ystds.append(ystd)
 	# Begin creating figure
 	plt.figure(figsize=(12,10))
 	# Use logscale
 	plt.pcolormesh(xedges,yedges,Hmasked,
-	               norm = LogNorm(vmin = Hmasked.min(),vmax = Hmasked.max()))
-	uplim = nmax(x)
-	dolim = nmin(x)
+	               norm = LogNorm(vmin = Hmasked.min(),vmax = Hmasked.max()),
+		       cmap = plt.get_cmap('Spectral_r'))
+	uplim = nmax(x)+5
+	dolim = nmin(x)-5
 	x_range = arange(dolim,uplim)
-	plt.plot(x_range,slope*x_range,'k',linewidth = 5)
+	plt.plot(x_range,slope*x_range,color = 'royalblue',linewidth = 3)
+	plt.errorbar(xposs,yavgs,yerr = ystds,fmt = 'D',color='k',markersize = 5)
+	plt.xlim(dolim+5,uplim-5)
+	plt.ylim(nmin(y),nmax(y))
 	cbar = plt.colorbar()
 	# Add labels
 	if labels != []:
@@ -548,13 +560,17 @@ for key in keys:
 
 ################################ MASK #####################################
                 # Set cutoff for mask
-				focdata = ocdata.flatten()
-				focdata = sort(focdata)
-				medi = focdata[len(focdata)/2]
-				cutoff = 10*medi
+				#focdata = ocdata.flatten()
+				#focdata = sort(focdata)
+				#medi = focdata[len(focdata)/2]
+				#cutoff = 10*medi
+				cutoff = 0.1
+				mapcut = fits.getdata(odi+ocname)
+				mapcut[where(mapcut > cutoff)] = 0
                 # Create mask name
 				mspl = cname.split('.fits')[0]
-				mname = mspl+'_mask.fits'
+				mname = mspl+'_mask{0}kJysr.fits'.format(cutoff)
+				fits.writeto(odi+mspl+'_mask{0}kJysr_objects.fits'.format(cutoff),mapcut,dflyheader,clobber=True)
 
                 # Mask data
 				if os.path.isfile(pdi+mname) == True and GENERATE == False and MASK == False:
