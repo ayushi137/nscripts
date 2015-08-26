@@ -164,6 +164,7 @@ BACKSUB = arguments['--backsub']
 
 from cartesian import cartesian
 from callastrometry import callastrometry
+from scampswarp import scampswarp
 from photometrypack import *
 from resconvolve import resconvolve
 from maskdata import maskdata
@@ -461,15 +462,23 @@ for key in keys:
 			else:
 				print 'Check for astrometry necessity'
 				callastrometry(ddi+f)
-
+			if GENERATE==True or ASTROMETRY==True:
+				scampswarp(cdi+spl+'_ldac.cat',ddi+f,ddi+spl+'_ss.fits')
+			oldhead = fits.getheader(ddi+f)
+			f = spl+'_ss.fits'
+			fspl = f.split('.fits')[0]
+			ssdata,newhead = fits.getdata(ddi+f,header=True)
+			uphead = oldhead.copy()
+			uphead.update(newhead)
+			fits.writeto(ddi+f,ssdata,uphead,clobber=True)
 ################################ SEXTRACTOR ####################################
 			if (GENERATE==True or os.path.isfile(cdi+spl+'.cat')==False or 
 			    os.path.isfile(odi+spl+'_objects.fits')==False or 
-			    os.path.isfile(bdi+spl+'_background.fits')==False):
+			    os.path.isfile(bdi+spl+'_background.fits')==False or
+			    ASTROMETRY==True):
 				sexcall(f,ddi,odi,cdi,bdi)
-
 ################################ IMAGE PROPERTIES ##############################
-            # Read in ds-ff data from file
+            # Read in ds-ff-ss data from file
 			dflyimage = fits.open(ddi+f)
 			dflydata = dflyimage[0].data
 			dflydata[where(isnan(dflydata)==True)] = 0
@@ -477,17 +486,22 @@ for key in keys:
 			dflyimage.close()
 			soln = wcs.WCS(dflyheader)
 	    # Load catalogue data to find FWHM information
-			catdata = loadtxt(cdi+spl+'.cat')
+			catdata = loadtxt(cdi+fspl+'.cat')
             # Find pixel scale from astrometry info
 			pscalx = dflyheader['PSCALX']
 			pscaly = dflyheader['PSCALY']
 			pixscale = (pscalx+pscaly)/2.
             # Select for unflagged entries
-			cheader = catheader(cdi+spl+'.cat')
+			cheader = catheader(cdi+fspl+'.cat')
 			catdata = catdata[where(catdata[:,cheader['FLAGS']] == 0)]
+			pfwhm = mean(catdata[:,cheader['FWHM_IMAGE']])
+			dflybeam = pfwhm*pixscale
+			print 'FWHM 1 = ',dflybeam
+			catdata = catdata[where(catdata[:,cheader['CLASS_STAR']]<1e-15)]
             # Find the average FWHM and convert to arcseconds
 			pfwhm = mean(catdata[:,cheader['FWHM_IMAGE']])
 			dflybeam = pfwhm*pixscale
+			print 'FWHM 2 = ',dflybeam
             # Add FWHM to header
 			dflyheader['FWHM'] = (dflybeam, 'arcseconds')
 			fits.writeto(ddi+f,dflydata,dflyheader,clobber=True)
@@ -498,9 +512,9 @@ for key in keys:
 
 ################################ PHOTOMETRY ###################################      
             # Choose photometered file name
-			pname = spl+'_photo.fits'
+			pname = fspl+'_photo.fits'
             # Choose output location for photometry related plots
-			outplots = mdi+spl
+			outplots = mdi+fspl
             # Run photometry
 			if (os.path.isfile(pdi+pname) != True or GENERATE == True or 
 			    PHOTOMETRY == True):
