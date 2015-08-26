@@ -43,6 +43,9 @@ objectdates['PGM_1_2'] = ['2013-09-23','2013-09-24','2013-09-25','2013-09-26',
                           '2013-09-27']
 objectdates['spi1_1'] = ['2014-10-31','2014-11-01','2014-11-19',
                          '2014-11-22','2014-11-23','2014-11-24']
+freqs = {}
+freqs['SloanG'] = 6.285e14/1.e9
+freqs['SloanR'] = 4.811e14/1.e9 
 
 keys = objectdates.keys()
 datedicts = {}
@@ -88,7 +91,8 @@ for key in keys:
                         camdict[serialno] = [float(header[chosenkey])]
                     row = [key,str(time.jd),serialno,header['FILTNAM'],expn,
                            str(midalt[0]), str(X[0]),str(header['M0']),
-                           str(header['FWHM']),str(date),str(header['SLOPE'])]
+                           str(header['FWHM']),str(date),str(header['SLOPE']),
+			   str(header['GSLOPE']),str(freqs[header['FILTNAM']])]
                     totalstats.append(row)
                 except KeyError:
                     continue
@@ -112,6 +116,7 @@ for objects in camdicts.keys():
     red = [item for item in red if item < 20]
     green = [item for sublist in green for item in sublist]
     green = [item for item in green if item < 20]
+    '''
     try:
         plt.figure()
         plt.hist(red,bins = nbins)
@@ -129,6 +134,7 @@ for objects in camdicts.keys():
         plt.close()
     except ValueError:
         continue
+    '''
 
 T = array(totalstats)
 
@@ -139,6 +145,7 @@ RED = array([item for item in RED if item < 20])
 GREEN = array([item for sublist in GREEN for item in sublist])
 GREEN = array([item for item in GREEN if item < 20])
 
+'''
 plt.figure()
 plt.hist(RED,bins = nbins)
 plt.title('Red Cameras')
@@ -153,6 +160,7 @@ plt.ylabel('Number')
 plt.xlabel(xlabels[chosenkey])
 plt.savefig(outputdir[chosenkey]+'greencams.png')
 plt.close()
+'''
 
 objects = T[:,0]
 times = T[:,1].astype(float)
@@ -163,6 +171,8 @@ altitudes = T[:,5].astype(float)
 airmasses = T[:,6].astype(float)
 m0s = T[:,7].astype(float)
 seeings = T[:,8].astype(float)
+slopes = T[:,11].astype(float)
+freq = T[:,12].astype(float)
 
 spi = where(objects == 'spi1_1')
 dra = where(objects == 'PGM_1_2')
@@ -171,23 +181,31 @@ keys = {}
 keys['spi'] = spi
 keys['dra'] = dra
 names = {}
-names['spi'] = 'Spider'
-names['dra'] = 'Draco'
+names['spi'] = 'spi1_1'
+names['dra'] = 'PGM_1_2'
 for key in names.keys():
+	plt.figure()
+	greens = where((colours=='SloanG') & (objects==names[key]))
+	reds = where((colours=='SloanR') & (objects==names[key]))
+	plt.loglog(freq[greens],slopes[greens],'go')
+	plt.loglog(freq[reds],slopes[reds],'ro')
+	plt.title(names[key])
+	plt.xlabel('Frequency [GHz]')
+	'''
+	plt.figure()
+	plt.plot(times[keys[key]],m0s[keys[key]],'.')
+	plt.xlabel('Time [JD]')
+	plt.ylabel('$m_0$')
+	plt.title(names[key])
+	plt.figure()
+	plt.plot(times[keys[key]],seeings[keys[key]],'.')
+	plt.xlabel('Time [JD]')
+	plt.ylabel('FWHM')
+	plt.title(names[key])
+	plt.figure()
+	plt.plot(m0s[keys[key]],seeings[keys[key]],'.')
+	plt.xlabel('$m_0$')
+	plt.ylabel('FWHM')
+	plt.title(names[key])
+	'''
 
-#SPIDER
-    plt.figure()
-    plt.plot(times[keys[key]],m0s[keys[key]],'.')
-    plt.xlabel('Time [JD]')
-    plt.ylabel('$m_0$')
-    plt.title(names[key])
-    plt.figure()
-    plt.plot(times[keys[key]],seeings[keys[key]],'.')
-    plt.xlabel('Time [JD]')
-    plt.ylabel('FWHM')
-    plt.title(names[key])
-    plt.figure()
-    plt.plot(m0s[keys[key]],seeings[keys[key]],'.')
-    plt.xlabel('$m_0$')
-    plt.ylabel('FWHM')
-    plt.title(names[key])

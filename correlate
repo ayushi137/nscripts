@@ -623,6 +623,10 @@ for key in keys:
 					dflyheader['BACKSUB'] = 'TRUE'
 					dflyheader['BACKDIF'] = nmax(bg)-nmin(bg)
 					dflyheader['SLOPE'] = ps[0]
+					if dflyheader['FILTNAM'] == 'SloanR':
+						dflyheader['GSLOPE'] = ps[-1]*4.811e14
+					if dflyheader['FILTNAM'] == 'SloanG':
+						dflyheader['GSLOPE'] = ps[-1]*6.285e14
 					fits.writeto(gdi+bname,newr,dflyheader,clobber=True)
 					fits.writeto(bdi+mspl+'_bgplane.fits',bg,dflyheader,clobber=True)
 					bspl = bname.split('.fits')[0]
