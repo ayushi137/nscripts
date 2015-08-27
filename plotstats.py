@@ -10,6 +10,37 @@ def m0am(p,am):
 def residuals(p,am,m0):
 	return abs(m0-m0am(p,am))
 
+def removeoutliers(xdata,ydata,nbins=False,binsize=False,smult=1.5):
+	if not nbins and not binsize:
+		print 'Choose a number of bins or a bin size with nbins or binsize kwargs'
+	if len(xdata) == 0:
+		return xdata,ydata
+	if binsize != False:
+		nbins = int((np.max(xdata)-np.min(xdata))/binsize)
+	if nbins != 0:
+		ninds = int(len(ydata)/nbins)
+		newydata = []
+		newxdata = []
+		i=0
+		while i < len(ydata):
+			try:
+				thisxbin = xdata[i:i+ninds]
+				thisybin = ydata[i:i+ninds]
+			except IndexError:
+				thisxbin = xdata[i:-1]
+				thisybin = ydata[i:-1]	
+			assert len(thisxbin) == len(thisybin)			
+			mthisbin = mean(thisybin)
+			sthisbin = std(thisybin)
+			for v in range(len(thisybin)):
+				if abs(mthisbin - thisybin[v]) < smult*sthisbin:
+					newydata.append(thisybin[v])
+					newxdata.append(thisxbin[v])
+			i+=ninds
+		return array(newxdata),array(newydata)
+	if nbins == 0:
+		return array([]),array([])
+
 plt.ion()
 
 outlierremove = True
@@ -97,6 +128,7 @@ for key in names.keys():
 		slope = slope[good]
 		date = date[good]
 	cams = unique(serial)
+	days = unique(date)
 	cr = 0
 	cg = 0
 	plt.figure(1+figinds[key],figsize = (10,8))
@@ -188,28 +220,57 @@ for key in names.keys():
 	if outlierremove:
 		plt.savefig('stats/no_out_{0}_slope_time.png'.format(names[key]))
 	plt.close('all')
-	for d in date:
-		greenm0s = m0[where((colour == 'SloanG') & (date == d))]
-		greenams = am[where((colour == 'SloanG') & (date == d))]
-		redm0s = m0[where((colour == 'SloanR') & (date == d))]
-		redams = am[where((colour == 'SloanR') & (date == d))]
-		p0green = [-0.14,27.5]
-		p0red = [-0.11,27.3]
-		if len(greenm0s) != 1 and len(redm0s) != 1:
-			pgreen = leastsq(residuals,p0green,args = (greenams,greenm0s))
-			pred = leastsq(residuals,p0red,args = (redams,redm0s))
-			amls = arange(np.min(am),np.max(am),0.01)
+	greenm0s = m0[where((colour == 'SloanG'))]
+	greenams = am[where((colour == 'SloanG'))]
+	redm0s = m0[where((colour == 'SloanR'))]
+	redams = am[where((colour == 'SloanR'))]
+	#greenams,greenm0s = removeoutliers(greenams,greenm0s,binsize = 0.03,smult = 1)
+	#redams,redm0s = removeoutliers(redams,redm0s,binsize = 0.03,smult = 1)
+	p0green = [-0.14,27.5]
+	p0red = [-0.11,27.3]
+	if len(greenm0s) > 1 and len(redm0s) > 1:
+		pgreen = leastsq(residuals,p0green,args = (greenams,greenm0s))
+		pred = leastsq(residuals,p0red,args = (redams,redm0s))
+		amls = arange(np.min(am),np.max(am),0.01)
+		plt.figure()
+		plt.plot(greenams,greenm0s,'go',markersize = 10,label = 'k = {0}'.format(pgreen[0][0]))
+		plt.plot(amls,m0am(pgreen[0],amls),'k',linewidth = 3)
+		plt.plot(redams,redm0s,'ro',markersize = 10,label = 'k = {0}'.format(pred[0][0]))
+		plt.plot(amls,m0am(pred[0],amls),'k',linewidth = 3)
+		plt.xlabel('Airmass')
+		plt.ylabel('$m_0$',fontsize = 20)
+		plt.title(names[key])
+		plt.legend(loc = 'best')
+		plt.savefig('stats/{0}_extinction.png'.format(names[key]))
+		plt.close()
+		print names[key]
+		print 'Green ',pgreen[0]
+		print 'Red ',pred[0]
+	for day in days:
+		print day
+		for sno in unique(serial[where(date==day)]):
+			print day,sno
+			greenm0s = m0[where((colour == 'SloanG') & (date == day) & (serial == sno))]
+			greenams = am[where((colour == 'SloanG') & (date == day) & (serial == sno))]
+			redm0s = m0[where((colour == 'SloanR') & (date == day) & (serial == sno))]
+			redams = am[where((colour == 'SloanR') & (date == day) & (serial == sno))]
+			#greenams,greenm0s = removeoutliers(greenams,greenm0s,binsize = 0.05,smult = 1)
+			#redams,redm0s = removeoutliers(redams,redm0s,binsize = 0.05,smult = 1)
+			p0green = [-0.14,27.5]
+			p0red = [-0.11,27.3]
 			plt.figure()
-			plt.plot(greenams,greenm0s,'go',markersize = 10,label = 'k = {0}'.format(pgreen[0][0]))
-			plt.plot(amls,m0am(pgreen[0],amls),'k',linewidth = 3)
-			plt.plot(redams,redm0s,'ro',markersize = 10,label = 'k = {0}'.format(pred[0][0]))
-			plt.plot(amls,m0am(pred[0],amls),'k',linewidth = 3)
+			if len(greenm0s) > 1:
+				pgreen = leastsq(residuals,p0green,args = (greenams,greenm0s))
+				amls = arange(np.min(am),np.max(am),0.01)
+				plt.plot(greenams,greenm0s,'go',markersize = 10,label = 'k = {0}'.format(pgreen[0][0]))
+				plt.plot(amls,m0am(pgreen[0],amls),'k',linewidth = 3)
+			if len(redm0s) > 1:
+				pred = leastsq(residuals,p0red,args = (redams,redm0s))
+				plt.plot(redams,redm0s,'ro',markersize = 10,label = 'k = {0}'.format(pred[0][0]))
+				plt.plot(amls,m0am(pred[0],amls),'k',linewidth = 3)
 			plt.xlabel('Airmass')
 			plt.ylabel('$m_0$',fontsize = 20)
 			plt.title(names[key])
 			plt.legend(loc = 'best')
-			plt.savefig('stats/{0}_{1}_extinction.png'.format(names[key],d))
+			plt.savefig('stats/{0}_{1}_{2}_extinction.png'.format(names[key],day,sno))
 			plt.close()
-			print names[key]
-			print 'Green ',pgreen[0]
-			print 'Red ',pred[0]
