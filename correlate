@@ -160,6 +160,8 @@ REGRID = arguments['--regrid']
 MASK = arguments['--mask']
 BACKSUB = arguments['--backsub']
 
+OLDPHOTO = False
+
 ############################## IMPORT FUNCTIONS ################################
 
 from cartesian import cartesian
@@ -502,6 +504,9 @@ for key in keys:
 			pfwhm = mean(catdata[:,cheader['FWHM_IMAGE']])
 			dflybeam = pfwhm*pixscale
 			print 'FWHM 2 = ',dflybeam
+			if isnan(dflybeam)==True: 
+				print 'No FWHM found'
+				continue
             # Add FWHM to header
 			dflyheader['FWHM'] = (dflybeam, 'arcseconds')
 			fits.writeto(ddi+f,dflydata,dflyheader,clobber=True)
@@ -518,10 +523,19 @@ for key in keys:
             # Run photometry
 			if (os.path.isfile(pdi+pname) != True or GENERATE == True or 
 			    PHOTOMETRY == True):
-				pdata,dflyheader,zp = photometry(ddi+f,cdi+spl+'.cat',
-								 APASSdir,pdi+pname, 
-								 create = True,
-								 plot = outplots)
+				if OLDPHOTO:
+					pdata,dflyheader,zp = photometry(ddi+f,cdi+spl+'.cat',
+									 APASSdir,pdi+pname, 
+									 create = True,
+									 plot = outplots)
+				if not OLDPHOTO:
+					os.system('python create_photometriclights.py -v -u {0}'.format(ddi+f))
+					photodat,H = fits.getdata(ddi+f.split('.fits')[0]+'_pcapass.fits')
+					zp = H['ZP3']
+					kJperADU = tokjypersr(1,pixscale,zp)
+					H['kJpADU'] = (kJperADU,'kJy/sr per ADU/pixel')
+					H['M0'] = zp
+					fits.writeto(pdi+pname,photodat*kJperADU,H,clobber=True)
 			elif (os.path.isfile(pdi+pname) == True and GENERATE == False and 
 			      PHOTOMETRY == False):
 				pdata,dflyheader = fits.getdata(pdi+pname,header=True)

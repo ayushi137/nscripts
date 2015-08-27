@@ -20,7 +20,7 @@ Options:
     -Y NUMBER, --ymax NUMBER
     -m NUMBER, --magmin NUMBER
     -t NUMBER, --threshold NUMBER               Number of sigma to threshold [default: 10]
-    -r DIRECTORY, --refcat DIRECTORY            The directory containing the reference APASS catalogs [default: /mnt/gfsproject/naiad/jlzhang/dragonfly/APASS/]
+    -r DIRECTORY, --refcat DIRECTORY            The directory containing the reference APASS catalogs [default: APASS/]
     -s LOCATION, --sex LOCATION                 Location of SExtractor executable [default: /opt/sextractor/2.8.6/bin/sex]
     -o DIRECTORY, --outputdir DIRECTORY         Output directory name  [default: .]
     -k, --kfit                                  Correct for the colour term
@@ -267,11 +267,11 @@ default_nnw = """NNW
 def create_catalog(image_name, detect_thresh=10):
 
     # Create a config, param, conv, nnw file for Sextractor
-    sextractor_config_name = "/tmp/scamp.sex"
-    params_name = "/tmp/scamp.param"
-    nnw_name = "/tmp/default.nnw"
-    conv_name = "/tmp/default.conv"
-    catalog_name = "/tmp/cz.cat"
+    sextractor_config_name = "scamp.sex"
+    params_name = "scamp.param"
+    nnw_name = "default.nnw"
+    conv_name = "default.conv"
+    catalog_name = "cz.cat"
     if verbose:
         verbose_type = "NORMAL"
     else:
