@@ -105,13 +105,13 @@ def subBGplane(Di,Hi,p0):
                  full_output=1)
     # Confirm that fit is successful and return results accordingly
     success = ps[-1]
-    allowedsuccess = [1,2,3,4]
+    allowedsuccess = [1,2,3]
     if success in allowedsuccess:
         print 'Successful fit'
         a,b,c,d = ps[0]
         Bgplane = fillplane(b,c,d,x0,y0,Di)
         graphslope = a*1e-3*mean(Hi[inds])*1e-20
-        return Di - Bgplane, Bgplane, [a,b,c,d,x0,y0,graphslope]
+        return Di - Bgplane, Bgplane, [a,b,c,d,x0,y0,graphslope],ps[1]
     if not success in allowedsuccess:
         print 'Failed to fit'
-        return 0,0,[]
+        return 0,0,[],[]
