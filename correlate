@@ -160,7 +160,7 @@ REGRID = arguments['--regrid']
 MASK = arguments['--mask']
 BACKSUB = arguments['--backsub']
 
-OLDPHOTO = True
+OLDPHOTO = False
 
 ############################## IMPORT FUNCTIONS ################################
 
