@@ -37,7 +37,7 @@ matplotlib.rc('font', **font)
 
 ############################## FUNCTIONS ##########################
 
-def callAPASS(ra,dec,fov,APASSdir):
+def callAPASS(ra,dec,APASSdir,fov=):
     """
     Finds an appropriate APASS catalogue for an image and saves it in APASSdir
 
@@ -148,7 +148,7 @@ def catheader(catname):
                 break
     return header
 
-def APASScheck(APASSdir,scanl,scanr,scand,scanu,racf,deccf,newfov=7):
+def APASScheck(APASSdir,scanl,scanr,scand,scanu,racf,deccf,newfov=7,fulloutput = False):
     """
     Check if the relevant part of the APASS catalogue is already in 
         APASSdir. If not, download it.
@@ -195,10 +195,14 @@ def APASScheck(APASSdir,scanl,scanr,scand,scanu,racf,deccf,newfov=7):
             if int(rad1) <= fov and int(rad2) <= fov and int(rad3) <= fov and int(rad4) <= fov:
                 print 'Successfully found extant APASS catalogue'
                 # Load APASS catalogue
-                apass = loadtxt(APASSdir+fs[i],usecols = (0,2,9,11))
+                if fulloutput == False:
+                	apass = loadtxt(APASSdir+fs[i],usecols = (0,2,9,11))
                 # Remove any row with a -1 entry
                 # -1 entry implies original information missing
-                apass = apass[where((apass[:,0] != -1) & (apass[:,1] != -1) & (apass[:,2] != -1) & (apass[:,3] != -1))]
+               		apass = apass[where((apass[:,0] != -1) & (apass[:,1] != -1) & (apass[:,2] != -1) & (apass[:,3] != -1))]
+               	if fulloutput == True:
+               		apass = loadtxt(APASSdir+fs[i])
+               		apass = apass[where((apass[:,0] != -1) & (apass[:,1] != -1) & (apass[:,2] != -1) & (apass[:,3] != -1))]
                 # End while loop
                 use = True
             # If this file does not work, move to the next
@@ -208,12 +212,17 @@ def APASScheck(APASSdir,scanl,scanr,scand,scanu,racf,deccf,newfov=7):
         except IndexError:
             print 'Creating APASS catalogue'
             # Create catalogue
-            callAPASS(racf,deccf,newfov,APASSdir)
+            callAPASS(racf,deccf,APASSdir,fov = newfov)
+            print 'Made file ra{0}dec{1}fov{2}.apass'.format(racf,deccf,newfov)
             # Read in created catalogue
-            apass = loadtxt(APASSdir+'ra{0}dec{1}fov{2}.apass'.format(racf,deccf,newfov),usecols = (0,2,9,11))
+            if fulloutput == False:
+            	apass = loadtxt(APASSdir+'ra{0}dec{1}fov{2}.apass'.format(racf,deccf,newfov),usecols = (0,2,9,11))
             # Remove any row with a -1 entry
             # -1 entry implies original information missing
-            apass = apass[where((apass[:,0] != -1) & (apass[:,1] != -1) & (apass[:,2] != -1) & (apass[:,3] != -1))]  
+           		apass = apass[where((apass[:,0] != -1) & (apass[:,1] != -1) & (apass[:,2] != -1) & (apass[:,3] != -1))] 
+           	if fulloutput == True:
+           		apass = loadtxt(APASSdir+'ra{0}dec{1}fov{2}.apass'.format(racf,deccf,newfov))
+           		apass = apass[where((apass[:,0] != -1) & (apass[:,1] != -1) & (apass[:,2] != -1) & (apass[:,3] != -1))] 
     return apass
 
 def photocheck(outname):

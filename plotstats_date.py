@@ -18,6 +18,8 @@ m0s = stats[:,7].astype(float)
 fwhms = stats[:,8].astype(float)
 dates = stats[:,9]
 slopes = stats[:,10].astype(float)
+fslopes = stats[:,11].astype(float)
+freqs = stats[:,12].astype(float)
 
 order = times.argsort()
 objects = objects[order]
@@ -31,6 +33,8 @@ m0s = m0s[order]
 fwhms = fwhms[order]
 dates = dates[order]
 slopes = slopes[order]
+fslopes = fslopes[order]
+freqs = freqs[order]
 
 spi = where(objects == 'spi1_1')
 dra = where(objects == 'PGM_1_2')
@@ -45,7 +49,7 @@ names['dra'] = 'Draco'
 
 figinds = {}
 figinds['spi'] = 0
-figinds['dra'] = 6
+figinds['dra'] = 7
 
 reds = ['r','lightcoral','darkred','darkorange','indianred']
 greens = ['g','lime','darkgreen','darkseagreen','greenyellow']
@@ -69,6 +73,8 @@ for key in names.keys():
 	date = dates[inds[key]]
 	expn = expns[inds[key]]
 	slope = slopes[inds[key]]
+	fslope = fslopes[inds[key]]
+	freq = freqs[inds[key]]
 	diff = abs(roll(time,1)-time)
 	transition = where(diff > 0.1)
 	transition = delete(transition, 0)
@@ -93,6 +99,8 @@ for key in names.keys():
 		expn = expn[good]
 		date = date[good]
 		slope = slope[good]
+		freq = freq[good]
+		fslope = fslope[good]
 	ds = unique(date)
 	cams = unique(serial)
 	cr = 0
@@ -121,6 +129,10 @@ for key in names.keys():
 	plt.title(names[key])	
 	plt.xlabel('Time')
 	plt.ylabel('Slope')
+	plt.figure(7+figinds[key],figsize = (10,8))
+	plt.title(names[key])
+	plt.xlabel(r'$\nu [GHz]$',fontsize = 20)
+	plt.ylabel(r'$\nu|_{\nu} W m^{-2} sr^{-1}$',fontsize = 20)
 	for d in ds:
 		potinds = where(date==d)
 		expntemp = expn[potinds]
@@ -130,6 +142,7 @@ for key in names.keys():
 		amtemp = am[potinds]
 		serialtemp = serial[potinds]
 		slopetemp = slope[potinds]
+		freqtemp = freq[potinds]
 		num = unique(expntemp)
 		plt.figure(1+figinds[key])
 		plt.plot(timetemp,m0temp,color = colors[k],linewidth = 3)
@@ -165,6 +178,8 @@ for key in names.keys():
 		plt.plot(am[i],m0[i],'o',color = color,markersize = 10,label = cam)
 		plt.figure(6+figinds[key])
 		plt.plot(time[i],slope[i],'o',color = color, markersize = 10,label = cam)
+		plt.figure(7+figinds[key])
+		plt.loglog(freq[i],fslope[i],'o',color = color, markersize = 10,label = cam)
 	for day in daysplits:
 		plt.figure(1+figinds[key])
 		plt.axvline(day,color='k',linewidth = 4)
@@ -208,3 +223,11 @@ for key in names.keys():
 		plt.savefig('datestats/{0}_slope_time.png'.format(names[key]))
 	if outlierremove:
 		plt.savefig('datestats/no_out_{0}_slope_time.png'.format(names[key]))
+	plt.figure(7+figinds[key])
+	plt.xlim(1e2,1e7)
+	plt.ylim(1e-10,1e-6)
+	plt.legend(loc = 'best',fontsize = 10)
+	if not outlierremove:
+		plt.savefig('datestats/{0}_fslope.png'.format(names[key]))
+	if outlierremove:
+		plt.savefig('datestats/no_out_{0}_fslope.png'.format(names[key]))
