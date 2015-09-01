@@ -604,32 +604,13 @@ for key in keys:
 				if os.path.isfile(pdi+mname) == True and GENERATE == False and MASK == False:
 					mdata,dflyheader = fits.getdata(pdi+mname,header=True)
 					target = fits.getdata(hername)
-				if os.path.isfile(pdi+mname) != True or GENERATE == True or MASK == True or dflyheader['MASKCUT'] - cutoff > 1e-3:
+				if os.path.isfile(pdi+mname) != True or GENERATE == True or MASK == True or dflyheader['MASKCUT'] - cutoff > 1e-15:
 					cdata,target = regrid(pdi+cname,hername)
 					ocdata,target = regrid(odi+ocname,hername)
 					mdata,dflyheader = maskdata(cdata,ocdata,cutoff,
 								    outfile = pdi+mname,
 								    header = dflyheader)
 				p0 = [2,1,1,1]
-				newr,tempbg,tempps = subBGplane(mdata,target,p0)
-				hheader = fits.getheader(hername)
-				time = Time(dflyheader['DATE'])
-				planefill = zeros((90,360))
-				alt,az,xpix,ypix = getAltAz(tempbg,hheader,time,telescope)
-				alt = alt[0::10000]
-				az = az[0::10000]
-				xpix = xpix[0::10000]
-				ypix = ypix[0::10000]
-				temp = []
-				for i in range(len(xpix)):
-					temp.append(tempbg[ypix[i]][xpix[i]])
-				plt.figure(figsize = (12,10))
-				plt.tripcolor(az,alt,temp,cmap = plt.cm.gray)
-				plt.xlabel('Azimuth [deg]')
-				plt.ylabel('Altitude [deg]')
-				plt.savefig(bdi+mspl+'_bgplane_azalt.png')
-				plt.close()
-		#plt.plot(xpix,ypix,'ko')
 ################################ RESHAPE #####################################                
 				mspl = mname.split('.fits')[0]
 				ress = np.sqrt((dflybeam/s2f)**2+(herbeam/s2f)**2)
@@ -646,11 +627,36 @@ for key in keys:
 				rspl = rname.split('.fits')[0]
 				bname = rspl+'_backsub.fits'
 				p0 = [2,1,1,1]
-				newr,bg,ps = subBGplane(r,t,p0)
+				newr,bg,ps,errs = subBGplane(r,t,p0)
+				hheader = fits.getheader(hername)
+				time = Time(dflyheader['DATE'])
+				planefill = zeros((90,360))
+				alt,az,xpix,ypix = getAltAz(bg,hheader,time,telescope)
+				alt = alt[0::100]
+				az = az[0::100]
+				xpix = xpix[0::100]
+				ypix = ypix[0::100]
+				temp = []
+				for i in range(len(xpix)):
+					temp.append(bg[ypix[i]][xpix[i]])
+				plt.figure(figsize = (12,10))
+				plt.tripcolor(az,alt,temp,cmap = plt.cm.gray)
+				plt.colorbar()
+				plt.xlabel('Azimuth [deg]')
+				plt.ylabel('Altitude [deg]')
+				plt.savefig(bdi+mspl+'_bgplane_azalt.png')
+				plt.close()
 				if isinstance(newr,float) != True:
 					dflyheader['BACKSUB'] = 'TRUE'
 					dflyheader['BACKDIF'] = nmax(bg)-nmin(bg)
 					dflyheader['SLOPE'] = ps[0]
+					dflyheader['SLOPE_ERR'] = errs[0,0]
+					dflyheader['XDEP'] = ps[1]
+					dflyheader['XDEP_ERR'] = errs[1,1]
+					dflyheader['YDEP'] = ps[2]
+					dflyheader['YDEP_ERR'] = errs[2,2]
+					dflyheader['PCONST'] = ps[3]
+					dflyheader['PCONST_ERR'] = errs[3,3]
 					if dflyheader['FILTNAM'] == 'SloanR':
 						dflyheader['GSLOPE'] = ps[-1]*4.811e14
 					if dflyheader['FILTNAM'] == 'SloanG':

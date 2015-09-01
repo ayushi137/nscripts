@@ -106,6 +106,7 @@ def SelectAPASSFile(declination,apass_dir):
     # We remainder declination range is in DR7; 
     if declination > 0 and declination < 20:
         apass_file = apass_dir + "zp%s_7.sum" % file_stub
+    print apass_file
     if os.path.isfile(apass_file):
         return(apass_file)
     else:
@@ -533,6 +534,7 @@ if __name__ == "__main__":
     else:
         # Load the APASS file which corresponds to the minimum declination in the field of view
         apass_file = SelectAPASSFile( min_dec, apass_dir)
+        print apass_file
         (name,ra,dec,g,r,gerr,rerr) = LoadAPASSFile( apass_file, min_ra, max_ra, verbose=verbose )
 
         # If the file for the maximum declination is different from the file for the minimum declination then
