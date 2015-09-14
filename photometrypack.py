@@ -37,7 +37,7 @@ matplotlib.rc('font', **font)
 
 ############################## FUNCTIONS ##########################
 
-def callAPASS(ra,dec,APASSdir,fov=):
+def callAPASS(ra,dec,APASSdir):
     """
     Finds an appropriate APASS catalogue for an image and saves it in APASSdir
 
