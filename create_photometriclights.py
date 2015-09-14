@@ -20,7 +20,7 @@ Options:
     -Y NUMBER, --ymax NUMBER
     -m NUMBER, --magmin NUMBER
     -t NUMBER, --threshold NUMBER               Number of sigma to threshold [default: 10]
-    -r DIRECTORY, --refcat DIRECTORY            The directory containing the reference APASS catalogs [default: APASS/]
+    -r DIRECTORY, --refcat DIRECTORY            The directory containing the reference APASS catalogs [default: /mnt/scratch-lustre/njones/SURP2015/APASS/]
     -s LOCATION, --sex LOCATION                 Location of SExtractor executable [default: /opt/sextractor/2.8.6/bin/sex]
     -o DIRECTORY, --outputdir DIRECTORY         Output directory name  [default: .]
     -k, --kfit                                  Correct for the colour term
@@ -58,6 +58,8 @@ import warnings
 from astropy.modeling import models, fitting
 
 from scipy.optimize import curve_fit
+
+from photometrypack import *
 
 def print_verbose_string(printme):
     print >> sys.stderr, "VERBOSE: %s" % printme
@@ -146,21 +148,25 @@ def LoadAPASSFile(filename, min_ra, max_ra, verbose=False):
         indices2 = numpy.arange( start2, end2 )
         indices = numpy.concatenate( (indices1,indices2) )
     else:
-        start = numpy.searchsorted( aacat.ra.values, min_ra, 'left' )
-        end = numpy.searchsorted( aacat.ra.values, max_ra, 'right' )
-        indices = numpy.arange( start, end )
+        indices = numpy.where((aacat.ra.values > min_ra) & (aacat.ra.values < max_ra))
     if verbose:
         print "Number of objects remaining: %d" % len(indices)  
 
     # Convert from NDFrame to ndarray data type
-    name = aacat.name[indices].values
-    ra = aacat.ra[indices].values
-    dec = aacat.dec[indices].values
-    g = aacat.g[indices].values
-    gerr = aacat.gerr[indices].values
-    r = aacat.r[indices].values
-    rerr = aacat.rerr[indices].values
-
+    #name = aacat.name[indices].values
+    name = aacat.name.values[indices]
+    #ra = aacat.ra[indices].values
+    ra = aacat.ra.values[indices]
+    #dec = aacat.dec[indices].values
+    dec = aacat.dec.values[indices]
+    #g = aacat.g[indices].values
+    g = aacat.g.values[indices]
+    #r = aacat.r[indices].values
+    r = aacat.r.values[indices]
+    #gerr = aacat.gerr[indices].values
+    gerr = aacat.gerr.values[indices]
+    #rerr = aacat.rerr[indices].values
+    rerr = aacat.rerr.values[indices] 
     return(name, ra, dec, g, r, gerr, rerr)
 
 # SExtractor configuration files
@@ -326,7 +332,7 @@ def save_image(image, factor_map, newimage_dir, suffix='pc', savemap=False):
     if savemap:
         basename    = image.split('/')[-1]
         # Save factor map
-        factor_map_name  = newimage_dir + '/' + basename.split('.')[-2] + '_'+suffix+'map_'+'.fits'
+        factor_map_name  = newimage_dir + '/' + basename.split('.')[-2] + '_'+suffix+'map'+'.fits'
         hduP        = fits.PrimaryHDU(factor_map)
         hdulist_final   =fits.HDUList(hduP)
         hdulist_final[0].header.update(header)
@@ -518,6 +524,8 @@ if __name__ == "__main__":
     max_ra = max(x_world)+1.1
     min_dec = min(y_world)-1.1
     max_dec = max(y_world)+1.1
+    racf = min_ra + (max_ra-min_ra)/2.
+    deccf = min_dec + (max_dec-min_dec)/2.
     x_center = min_x_image + (max_x_image - min_x_image)/2.0
     y_center = min_y_image + (max_y_image - min_y_image)/2.0
     if verbose:
@@ -532,6 +540,13 @@ if __name__ == "__main__":
         if verbose:
             print_verbose_string( "Loading cached catalog data" )
     else:
+        #apass_array = APASScheck(apass_dir,min_ra,max_ra,min_dec,max_dec,racf,deccf,fulloutput=True)
+        #ra = apass_array[:,0]
+        #dec = apass_array[:,2]
+        #g = apass_array[:,9]
+        #r = apass_array[:,11]
+        #gerr = apass_array[:,10]
+        #rerr = apass_array[:,12]
         # Load the APASS file which corresponds to the minimum declination in the field of view
         apass_file = SelectAPASSFile( min_dec, apass_dir)
         print apass_file
@@ -541,15 +556,15 @@ if __name__ == "__main__":
         # load that one too and augment the arrays accordingly
         apass_file_extra = SelectAPASSFile( max_dec , apass_dir)
 
-        if not (apass_file == apass_file_extra):
-            (name_extra,ra_extra,dec_extra,g_extra,r_extra,gerr_extra,rerr_extra) = LoadAPASSFile(apass_file_extra, min_ra, max_ra, verbose=verbose )
-            name = numpy.concatenate( (name, name_extra) )
-            ra = numpy.concatenate( (ra, ra_extra) )
-            dec = numpy.concatenate( (dec, dec_extra) )
-            g = numpy.concatenate( (g, g_extra) )
-            r = numpy.concatenate( (r, r_extra) )
-            gerr = numpy.concatenate( (gerr, gerr_extra) )
-            rerr = numpy.concatenate( (rerr, rerr_extra) )
+        #if not (apass_file == apass_file_extra):
+        (name_extra,ra_extra,dec_extra,g_extra,r_extra,gerr_extra,rerr_extra) = LoadAPASSFile(apass_file_extra, min_ra, max_ra, verbose=verbose )
+        name = numpy.concatenate( (name, name_extra) )
+        ra = numpy.concatenate( (ra, ra_extra) )
+        dec = numpy.concatenate( (dec, dec_extra) )
+        g = numpy.concatenate( (g, g_extra) )
+        r = numpy.concatenate( (r, r_extra) )
+        gerr = numpy.concatenate( (gerr, gerr_extra) )
+        rerr = numpy.concatenate( (rerr, rerr_extra) )
         if cache:
             numpy.savetxt('apass_cache.dat',(name,ra,dec,g,r,gerr,rerr))
     
@@ -698,7 +713,7 @@ if __name__ == "__main__":
 
 
 # Fit residues with surface and divide it out
-
+    print len(clipped_x_image),len(clipped_y_image),len(clipped_res2)
     p_res = surffit(clipped_x_image,clipped_y_image,clipped_res2, deg=1)
     (naxis1,naxis2) = getimsize(catalog)
     x = numpy.array(map(float,range(naxis1)))
