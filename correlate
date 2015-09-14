@@ -43,7 +43,7 @@ Options:
     -x DIRECTORY, --cross DIR       Location of files to correlate with
                                     [default: ../herschel/]
     -a DIRECTORY, --apass DIR       Location of APASS catalogues
-                                    [default: APASS/]
+                                    [default: /mnt/scratch-lustre/njones/SURP2015/APASS/]
 Testing Options:
     -g, --generate                  If False, do not generate data from
                                     any of the following substeps unless 
@@ -230,7 +230,7 @@ def sexcall(f,ddi,odi,cdi,bdi):
 	os.system(objsexcall)
 	os.system(baksexcall)
 
-def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1):
+def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1,sloperr = 0):
 	"""
 	Creates a 2D histogram from data given by numpy's histogram
 
@@ -272,8 +272,8 @@ def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1):
 	for j in range(len(xedges)-1):
 		toavg = where((x > xedges[j]) & (x < xedges[j+1]))
 		xpos = np.mean(x[toavg])
-		yavg = np.mean(y[toavg])
-		ystd = np.std(y[toavg])
+		yavg = np.median(y[toavg])
+		ystd = np.std(y[toavg])/len(y[toavg])
 		xposs.append(xpos)
 		yavgs.append(yavg)
 		ystds.append(ystd)
@@ -286,7 +286,7 @@ def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1):
 	uplim = nmax(x)+5
 	dolim = nmin(x)-5
 	x_range = arange(dolim,uplim)
-	plt.plot(x_range,slope*x_range,color = 'royalblue',linewidth = 3)
+	plt.plot(x_range,slope*x_range,color = 'royalblue',linewidth = 3,label = 'Uncertainty = {0}'.format(sloperr))
 	plt.errorbar(xposs,yavgs,yerr = ystds,fmt = 'D',color='k',markersize = 5)
 	plt.xlim(dolim+5,uplim-5)
 	plt.ylim(nmin(y),nmax(y))
@@ -298,6 +298,7 @@ def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1):
 	    plt.ylabel(ylabel)
 	    plt.title(title)
 	    cbar.ax.set_ylabel(zlabel)
+	    plt.legend(loc = 'best')
 	# Save plot
 	if saveloc != '':
 		plt.savefig(saveloc)
@@ -408,6 +409,7 @@ for key in keys:
 		if not files:
 			calcom = ('python calibratedata -g  -o '+key+
 				  ' -t '+date)
+		os.system(calcom)
 	if not GENERATE and not CALIBRATE:
 		print 'Check for calibration files'
 		if files:
@@ -454,6 +456,7 @@ for key in keys:
 			print 'FILE '+di+f
 			f = f.split('.fits')[0]+'_ds_ff.fits'
             # Confirm calibrated file exists
+			print os.path.isfile(ddi+f)
 			assert os.path.isfile(ddi+f) == True
 			spl = f.split('.fits')[0]
 
@@ -465,7 +468,8 @@ for key in keys:
 				print 'Check for astrometry necessity'
 				callastrometry(ddi+f)
 			if GENERATE==True or ASTROMETRY==True:
-				scampswarp(cdi+spl+'_ldac.cat',ddi+f,ddi+spl+'_ss.fits')
+				#os.system('python scampswarp.py')
+				scampswarp(ddi+spl+'.cat',ddi+f,ddi+spl+'_ss.fits')
 			oldhead = fits.getheader(ddi+f)
 			f = spl+'_ss.fits'
 			fspl = f.split('.fits')[0]
@@ -517,25 +521,36 @@ for key in keys:
 
 ################################ PHOTOMETRY ###################################      
             # Choose photometered file name
-			pname = fspl+'_photo.fits'
             # Choose output location for photometry related plots
 			outplots = mdi+fspl
             # Run photometry
+			print 'Run photometry'
+			if OLDPHOTO:
+				pname = fspl+'_oldphoto.fits'
+			if not OLDPHOTO:
+				pname = fspl+'_photo.fits'
 			if (os.path.isfile(pdi+pname) != True or GENERATE == True or 
 			    PHOTOMETRY == True):
 				if OLDPHOTO:
-					pdata,dflyheader,zp = photometry(ddi+f,cdi+spl+'.cat',
+					pdata,dflyheader,zp = photometry(ddi+f,cdi+fspl+'.cat',
 									 APASSdir,pdi+pname, 
 									 create = True,
 									 plot = outplots)
 				if not OLDPHOTO:
-					os.system('python create_photometriclights.py -v -u {0}'.format(ddi+f))
-					photodat,H = fits.getdata(ddi+f.split('.fits')[0]+'_pcapass.fits')
+					os.system('python create_photometriclights.py -p -k -u {0} -o {1} -r {2}'.format(ddi+f,ddi,APASSdir))
+					try:
+						photodat,H = fits.getdata(ddi+f.split('.fits')[0]+'_pcapass.fits',header = True)
+						photodat = reshape(photodat,photodat,0,limval=0)
+					except IOError:
+						print 'Missing photometry'
+						continue
 					zp = H['ZP3']
-					kJperADU = tokjypersr(1,pixscale,zp)
+					kJperADU = float(tokjypersr(1,pixscale,zp))
 					H['kJpADU'] = (kJperADU,'kJy/sr per ADU/pixel')
 					H['M0'] = zp
 					fits.writeto(pdi+pname,photodat*kJperADU,H,clobber=True)
+					callastrometry(pdi+pname,generate=True)
+					dflyheader = H
 			elif (os.path.isfile(pdi+pname) == True and GENERATE == False and 
 			      PHOTOMETRY == False):
 				pdata,dflyheader = fits.getdata(pdi+pname,header=True)
@@ -548,25 +563,30 @@ for key in keys:
 			try:
 				convert = dflyheader['kJpADU']
 			except KeyError:
+				print 'Could not find conversion factor'
 				continue
-			pstar = fits.getdata(odi+spl+'_objects.fits')*convert
-			pback = fits.getdata(bdi+spl+'_background.fits')*convert
-			fits.writeto(odi+spl+'_photo_objects.fits',pstar,dflyheader,
-				     clobber=True)
-			fits.writeto(bdi+spl+'_photo_background.fits',pback,dflyheader,
-				     clobber=True)
+			pspl = pname.split('.fits')[0]
+			sexcall(pname,pdi,odi,cdi,bdi)
+			#pstar = fits.getdata(odi+spl+'_objects.fits')*convert
+			#pback = fits.getdata(bdi+spl+'_background.fits')*convert
+			#fits.writeto(odi+spl+'_photo_objects.fits',pstar,dflyheader,
+			#	     clobber=True)
+			#fits.writeto(bdi+spl+'_photo_background.fits',pback,dflyheader,
+			#	     clobber=True)
             
 ################################ CYCLE CORRELTION-FILES #########################
+			print 'Cycle Herschel Files'
 			for hername in herfiles:
 				skey = [i for i in spirekeys if i in hername][0]
 				herbeam = SPIRE[skey]
 
 ################################ CONVOLUTION #####################################
                 # Create output file names
-				pspl = pname.split('.fits')[0]
+				
 				cname = pspl+'_convto'+str(herbeam)+'.fits'
 				ocname = pspl+'_convto'+str(herbeam)+'_objects.fits'
                 # Do convolution on sky image
+				print 'Begin convolution'
 				if (os.path.isfile(pdi+cname) == True and 
 				    GENERATE == False and CONVOLVE == False):
 					cdata,dflyheader = fits.getdata(pdi+cname,header=True)
@@ -578,7 +598,7 @@ for key in keys:
 				if os.path.isfile(odi+ocname) == True and GENERATE == False and CONVOLVE == False:
 					ocdata,oheader = fits.getdata(odi+ocname,header=True)
 				elif os.path.isfile(odi+ocname) != True or GENERATE == True or CONVOLVE == True:
-					ocdata,oheader = resconvolve(odi+spl+'_photo_objects.fits',
+					ocdata,oheader = resconvolve(odi+pspl+'_objects.fits',
                     						     dflybeam,herbeam,
 								     outfile = odi+ocname,
 								     header = dflyheader)
@@ -592,6 +612,7 @@ for key in keys:
 				#focdata = sort(focdata)
 				#medi = focdata[len(focdata)/2]
 				#cutoff = 10*medi
+				print 'Do masking'
 				cutoff = 0.1
 				mapcut = fits.getdata(odi+ocname)
 				mapcut[where(mapcut > cutoff)] = 0
@@ -611,7 +632,8 @@ for key in keys:
 								    outfile = pdi+mname,
 								    header = dflyheader)
 				p0 = [2,1,1,1]
-################################ RESHAPE #####################################                
+################################ RESHAPE #####################################  
+				print 'Do reshape'
 				mspl = mname.split('.fits')[0]
 				ress = np.sqrt((dflybeam/s2f)**2+(herbeam/s2f)**2)
 				r = reshape(mdata,mdata,2*ress)
@@ -624,6 +646,7 @@ for key in keys:
 				fits.writeto(rdi+rname,r,dflyheader,clobber=True)
 
 ################################ BACK-SUB #####################################
+				print 'Background plane fit'
 				rspl = rname.split('.fits')[0]
 				bname = rspl+'_backsub.fits'
 				p0 = [2,1,1,1]
@@ -671,12 +694,13 @@ for key in keys:
 					zlabel = 'Pixels'
 					labels = [title,xlabel,ylabel,zlabel]
 					pos = where(r > 0)
-					H = hist2d(t[pos],newr[pos],50,saveloc=saveloc,labels = labels,slope = ps[0])
+					H = hist2d(t[pos],newr[pos],50,saveloc=saveloc,labels = labels,slope = ps[0],sloperr = errs[0,0])
 				elif isinstance(newr,float) == True:
 					print 'Failed background subtraction'
 					continue
 				print 'Done ', f,'\n\n\n\n\n\n'
-		except AssertionError:
+		except AssertionError as e:
+			print e
 			print 'Calibrated file missing for ',f
 			continue
                 #fits.writeto(hname,t,clobber=True

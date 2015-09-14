@@ -99,8 +99,7 @@ def scampswarp(scampcat,image,imageout,interptype = 'LANCZOS3'):
     scamp_command = scamp_command + "-PROJECTION_TYPE TAN -SOLVE_PHOTOM N -MAGZERO_KEY ZP -PHOTINSTRU_KEY FILTNAM "
     scamp_command = scamp_command + "-CHECKPLOT_DEV PDF -CHECKPLOT_NAME phot_zp -CHECKPLOT_TYPE PHOT_ZPCORR {0}"
     subprocess.call(scamp_command.format(scampcat),shell=True)
-    os.system('rm -f '+scampcat.split('.fits')[0]+'.head')
-    os.system('rm -f *.png')
+    print scamp_command.format(scampcat)
     swarp_command = "swarp -c default.swarp -COPY_KEYWORDS TARGET,FILTNAM,SERIALNO,"
     swarp_command = swarp_command + "ALTITUDE,AZIMUTH,ZP,ZPRMS,ZPNGOOD,ZPNREJ,FWHM,SSIGMA,NOBJ,AXRATIO,"
     swarp_command = swarp_command + "AXRRMS,THMEAN,THRMS,SKYLVL,SKYRMS,SKYSB,DATE -SUBTRACT_BACK N "
@@ -108,6 +107,7 @@ def scampswarp(scampcat,image,imageout,interptype = 'LANCZOS3'):
     swarp_command = swarp_command + " -PIXELSCALE_TYPE MANUAL -PIXEL_SCALE 2.0 -FSCALASTRO_TYPE VARIABLE"
     swarp_command = swarp_command + " -IMAGEOUT_NAME {0} {1}"
     subprocess.call(swarp_command.format(imageout, image), shell=True)
+    print swarp_command.format(imageout, image)
 
 
 

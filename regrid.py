@@ -159,7 +159,7 @@ def regrid(sourceimage,targetimage,fillval = NAN,theader = 0,tpix = []):
     print 'Regridded in ',(end-start)/60.,' min'
     return tofill,tdata
 
-def nanlimits(arr):
+def vallimits(arr,limval = NAN):
     """
     For 1D arr, determine the index location of the first
         and last non-NAN value.
@@ -170,7 +170,10 @@ def nanlimits(arr):
 
     """
     # Find where arr is non-NAN
-    vallocs = where(isnan(arr) == False)
+    if isnan(limval) == True:
+        vallocs = where(isnan(arr) == False)
+    else:
+        vallocs = where(arr != limval)
     # Extract the indices corresponding to the maximum and
     # minimum non-NANs. If none exist, set them to NAN
     try:
@@ -207,7 +210,7 @@ def valfilter(ls,minmax):
     if minmax == 'max':
         return max(keys)
 
-def reshapeparams(data):
+def reshapeparams(data,limval = NAN):
     """
     Finds slicing limit of 2D array data
 
@@ -222,14 +225,14 @@ def reshapeparams(data):
     coldowns = []
     # Search rows for limits
     for i in range(len(data)):
-        rowdown,rowup = nanlimits(data[i])
+        rowdown,rowup = vallimits(data[i],limval = limval)
         if not isnan(rowup):
             rowups.append(rowup)
         if not isnan(rowdown):
             rowdowns.append(rowdown)
     # Search columns for limits
     for i in range(len(data[0])):
-        coldown,colup = nanlimits(data[:,i])
+        coldown,colup = vallimits(data[:,i],limval = limval)
         if not isnan(colup):
             colups.append(colup)
         if not isnan(coldown):
@@ -241,7 +244,7 @@ def reshapeparams(data):
     coldo = valfilter(coldowns,'max')
     return rowup,rowdo,colup,coldo
 
-def reshape(data,shapebyarr,ress):
+def reshape(data,shapebyarr,ress,limval = NAN):
     """
     Reshapes 2D data according to 2D shapebyarr, then slices ress rows
         and columns off of each side.
@@ -253,7 +256,7 @@ def reshape(data,shapebyarr,ress):
     Returns a 2D array
     """
     # Find the slicng limits for the array
-    rowup,rowdo,colup,coldo = reshapeparams(shapebyarr)
+    rowup,rowdo,colup,coldo = reshapeparams(shapebyarr,limval = limval)
     # Slice array by NAN limits and additional limits
     colslice = data[coldo+ress:colup-ress]
     rowslice = colslice.T

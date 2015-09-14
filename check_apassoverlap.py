@@ -93,17 +93,26 @@ def LoadAPASSFile(filename, min_ra, max_ra, verbose=False):
         start = numpy.searchsorted( aacat.ra.values, min_ra, 'left' )
         end = numpy.searchsorted( aacat.ra.values, max_ra, 'right' )
         indices = numpy.arange( start, end )
+        indices = numpy.where((aacat.ra.values > min_ra) & (aacat.ra.values < max_ra))
+        print start, end, indices
     if verbose:
-        print "Number of objects remaining: %d" % len(indices)  
+        print "Number of objects remaining: %d" % len(indices[0])  
 
     # Convert from NDFrame to ndarray data type
-    name = aacat.name[indices].values
-    ra = aacat.ra[indices].values
-    dec = aacat.dec[indices].values
-    g = aacat.g[indices].values
-    r = aacat.r[indices].values
-    gerr = aacat.gerr[indices].values
-    rerr = aacat.rerr[indices].values
+    #name = aacat.name[indices].values
+    name = aacat.name.values[indices]
+    #ra = aacat.ra[indices].values
+    ra = aacat.ra.values[indices]
+    #dec = aacat.dec[indices].values
+    dec = aacat.dec.values[indices]
+    #g = aacat.g[indices].values
+    g = aacat.g.values[indices]
+    #r = aacat.r[indices].values
+    r = aacat.r.values[indices]
+    #gerr = aacat.gerr[indices].values
+    gerr = aacat.gerr.values[indices]
+    #rerr = aacat.rerr[indices].values
+    rerr = aacat.rerr.values[indices]
 
     return(name, ra, dec, g, r,gerr,rerr)
 
@@ -208,11 +217,11 @@ default_nnw = """NNW
 
 def create_catalog(image_name, detect_thresh=10):
     # Create a config, param, conv, nnw file for Sextractor
-    sextractor_config_name = "/tmp/scamp.sex"
-    params_name = "/tmp/scamp.param"
-    nnw_name = "/tmp/default.nnw"
-    conv_name = "/tmp/default.conv"
-    catalog_name = "/tmp/cz.cat"
+    sextractor_config_name = "scamp.sex"
+    params_name = "scamp.param"
+    nnw_name = "default.nnw"
+    conv_name = "default.conv"
+    catalog_name = "cz.cat"
     if verbose:
         verbose_type = "NORMAL"
     else:
@@ -240,11 +249,11 @@ def create_catalog(image_name, detect_thresh=10):
     return catalog_name
 
 def remove_tmpfiles():
-    sextractor_config_name = "/tmp/scamp.sex"
-    params_name = "/tmp/scamp.param"
-    nnw_name = "/tmp/default.nnw"
-    conv_name = "/tmp/default.conv"
-    catalog_name = "/tmp/cz.cat"
+    sextractor_config_name = "scamp.sex"
+    params_name = "scamp.param"
+    nnw_name = "default.nnw"
+    conv_name = "default.conv"
+    catalog_name = "cz.cat"
     os.remove(sextractor_config_name)
     os.remove(params_name)
     os.remove(nnw_name)
@@ -461,5 +470,5 @@ if __name__ == "__main__":
     
 
 # Clean up by removing all tmp files
-    remove_tmpfiles()
+    #remove_tmpfiles()
 
