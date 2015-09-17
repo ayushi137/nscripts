@@ -20,7 +20,7 @@ Options:
     -Y NUMBER, --ymax NUMBER
     -m NUMBER, --magmin NUMBER
     -t NUMBER, --threshold NUMBER               Number of sigma to threshold [default: 10]
-    -r DIRECTORY, --refcat DIRECTORY            The directory containing the reference APASS catalogs [default: /mnt/scratch-lustre/njones/SURP2015/APASS/]
+    -r DIRECTORY, --refcat DIRECTORY            The directory containing the reference APASS catalogs [default: /mnt/scratch-lustre/njones/SURP2015/nscripsts/APASS/]
     -s LOCATION, --sex LOCATION                 Location of SExtractor executable [default: /opt/sextractor/2.8.6/bin/sex]
     -o DIRECTORY, --outputdir DIRECTORY         Output directory name  [default: .]
     -k, --kfit                                  Correct for the colour term

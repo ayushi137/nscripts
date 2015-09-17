@@ -166,7 +166,7 @@ OLDPHOTO = False
 
 from cartesian import cartesian
 from callastrometry import callastrometry
-from scampswarp import scampswarp
+from scampswarp_working import scampswarp
 from photometrypack import *
 from resconvolve import resconvolve
 from maskdata import maskdata
@@ -225,8 +225,8 @@ def sexcall(f,ddi,odi,cdi,bdi):
 	# object map and background map filenames
 	fname = f.split('.fits')[0]
 	# Construct source extractor call
-	objsexcall = 'sex -PARAMETERS_NAME photo.param -CATALOG_NAME '+cdi+fname+'.cat'+' -CHECKIMAGE_TYPE OBJECTS -CHECKIMAGE_NAME '+odi+fname+'_objects.fits '+ddi+f
-	baksexcall = 'sex -PARAMETERS_NAME photo.param -CATALOG_NAME '+cdi+fname+'.cat'+' -CHECKIMAGE_TYPE BACKGROUND -CHECKIMAGE_NAME '+bdi+fname+'_background.fits '+ddi+f
+	objsexcall = 'sex -CATALOG_TYPE ASCII_HEAD -PARAMETERS_NAME photo.param -CATALOG_NAME '+cdi+fname+'.cat'+' -CHECKIMAGE_TYPE OBJECTS -CHECKIMAGE_NAME '+odi+fname+'_objects.fits '+ddi+f
+	baksexcall = 'sex -CATALOG_TYPE ASCII_HEAD -PARAMETERS_NAME photo.param -CATALOG_NAME '+cdi+fname+'.cat'+' -CHECKIMAGE_TYPE BACKGROUND -CHECKIMAGE_NAME '+bdi+fname+'_background.fits '+ddi+f
 	os.system(objsexcall)
 	os.system(baksexcall)
 
@@ -286,7 +286,7 @@ def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1,sloperr = 0):
 	uplim = nmax(x)+5
 	dolim = nmin(x)-5
 	x_range = arange(dolim,uplim)
-	plt.plot(x_range,slope*x_range,color = 'royalblue',linewidth = 3,label = 'Uncertainty = {0}'.format(sloperr))
+	plt.plot(x_range,slope*x_range,color = 'royalblue',linewidth = 3,label = 'Slope = {0}, Uncertainty = {1}'.format(slope,sloperr))
 	plt.errorbar(xposs,yavgs,yerr = ystds,fmt = 'D',color='k',markersize = 5)
 	plt.xlim(dolim+5,uplim-5)
 	plt.ylim(nmin(y),nmax(y))
@@ -298,7 +298,7 @@ def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1,sloperr = 0):
 	    plt.ylabel(ylabel)
 	    plt.title(title)
 	    cbar.ax.set_ylabel(zlabel)
-	    plt.legend(loc = 'best')
+	    plt.legend(loc = 'best',fontsize = 15)
 	# Save plot
 	if saveloc != '':
 		plt.savefig(saveloc)
@@ -468,8 +468,7 @@ for key in keys:
 				print 'Check for astrometry necessity'
 				callastrometry(ddi+f)
 			if GENERATE==True or ASTROMETRY==True:
-				#os.system('python scampswarp.py')
-				scampswarp(ddi+spl+'.cat',ddi+f,ddi+spl+'_ss.fits')
+				scampswarp(ddi+f)
 			oldhead = fits.getheader(ddi+f)
 			f = spl+'_ss.fits'
 			fspl = f.split('.fits')[0]
@@ -478,11 +477,11 @@ for key in keys:
 			uphead.update(newhead)
 			fits.writeto(ddi+f,ssdata,uphead,clobber=True)
 ################################ SEXTRACTOR ####################################
-			if (GENERATE==True or os.path.isfile(cdi+spl+'.cat')==False or 
-			    os.path.isfile(odi+spl+'_objects.fits')==False or 
-			    os.path.isfile(bdi+spl+'_background.fits')==False or
-			    ASTROMETRY==True):
-				sexcall(f,ddi,odi,cdi,bdi)
+			#if (GENERATE==True or os.path.isfile(cdi+spl+'.cat')==False or 
+			#    os.path.isfile(odi+spl+'_objects.fits')==False or 
+			#    os.path.isfile(bdi+spl+'_background.fits')==False or
+			#    ASTROMETRY==True):
+			sexcall(f,ddi,odi,cdi,bdi)
 ################################ IMAGE PROPERTIES ##############################
             # Read in ds-ff-ss data from file
 			dflyimage = fits.open(ddi+f)
