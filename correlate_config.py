@@ -11,13 +11,16 @@ spirekeys = SPIRE.keys()
 
 config_data = {
 	
-	'scope':'Dragonfly'
-	'objects':['PGM_1_2','spi1_1']
-	'raws':'/raw_lights/'
-	'cals':'/calframes/'
-	'dsff':'/darksub_flatfield/'
-	'rwcorrfiles':True
-	'badframesdir':'/removedframes'
+	'scope':'Dragonfly' # telescope being used
+	'objects':['PGM_1_2','spi1_1'] # names of cloud directories
+	'raws':'/raw_lights/' # name of raw file directory
+	'cals':'/calframes/' # name of calibration file directory
+	'dsff':'/darksub_flatfield/' # name of calibrated file directory (will be created)
+	'rwcorrfiles':True # rewrites files to be correlated against (Herschel specific)
+	'badframesdir':'/removedframes' # place to put bad files
+	'cutoff_type':'median' # rule to apply to data to calculate cutoff (median/mean)
+	'cutoff_mult':10 # multiplicative factor to apply to cutoff
+	'cutoff':0 # if zero, multiplies cutoff_mult by cutoff_type(data) to calculate cutoff - otherwise hard cutoff			
 }
 
 # OUTPUT DIRECTORIES

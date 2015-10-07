@@ -6,7 +6,7 @@ correlate - correlate Dragonfly images against Herschel images
 Expects a particular file system set up for images to correlate: 
 <parent directory>/<object name>/<raw_file_directory>/<date>/<image>/
 
-These images are:
+These images can be:
 
 1) dark subtracted and flat fielded
 2) scamped and swarped
@@ -19,7 +19,7 @@ These images are:
 Assumes a particular file system set up for images to correlate against:
 <parent directory>/<object name>/<image>
 
-These images are:
+These images can be:
 
 1) masked
 2) correlated
@@ -488,6 +488,7 @@ for cloud in objects:
             os.system('mkdir '+directory+cloud+d+date+'/')
 
 ################################ CYCLE FILES ###################################
+    
     for f in fs:
 		try:
 			if VERBOSE:
@@ -496,19 +497,26 @@ for cloud in objects:
 			f = f.split('.fits')[0]+'_ds_ff.fits'
 	  
 	        # Confirm calibrated file exists
-			print os.path.isfile(ddi+f)
 			assert os.path.isfile(ddi+f) == True
 			spl = f.split('.fits')[0]
 
-	################################ ASTROMETRY ####################################
+################################ ASTROMETRY ####################################
+			
 			if GENERATE==True or ASTROMETRY==True:
-				print 'Do astrometry'
+				if VERBOSE:
+					print 'Do astrometry for '+f
+				scrubwcsheader(ddi+f)
 				callastrometry(ddi+f,generate=True)
 			else:
-				print 'Check for astrometry necessity'
+				if VERBOSE:
+					print 'Check for astrometry for '+f
 				callastrometry(ddi+f)
-			if GENERATE==True or ASTROMETRY==True:
+			if GENERATE==True or ASTROMETRY==True or fexists(ddi+spl+'_ss.fits') == False:
+				if VERBOSE:
+					print 'Scamp and swarp '+f
 				scampswarp(ddi+f)
+			if VERBOSE:
+				print 'Update '+f+' header with SWARP WCS'
 			oldhead = fits.getheader(ddi+f)
 			f = spl+'_ss.fits'
 			fspl = f.split('.fits')[0]
@@ -516,21 +524,21 @@ for cloud in objects:
 			uphead = oldhead.copy()
 			uphead.update(newhead)
 			fits.writeto(ddi+f,ssdata,uphead,clobber=True)
-	################################ SEXTRACTOR ####################################
-			#if (GENERATE==True or os.path.isfile(cdi+spl+'.cat')==False or 
-			#    os.path.isfile(odi+spl+'_objects.fits')==False or 
-			#    os.path.isfile(bdi+spl+'_background.fits')==False or
-			#    ASTROMETRY==True):
-			sexcall(f,ddi,odi,cdi,bdi)
-	################################ IMAGE PROPERTIES ##############################
+
+################################ IMAGE PROPERTIES ##############################
 	        # Read in ds-ff-ss data from file
+	        if VERBOSE:
+	        	print 'Read '+f
 			dflyimage = fits.open(ddi+f)
 			dflydata = dflyimage[0].data
+			if VERBOSE:
+				print 'Remove NAN data from '+f
 			dflydata[where(isnan(dflydata)==True)] = 0
 			dflyheader = dflyimage[0].header
 			dflyimage.close()
+			# Load WCS solution
 			soln = wcs.WCS(dflyheader)
-	    # Load catalogue data to find FWHM information
+	    	# Load catalogue data to find FWHM information
 			catdata = loadtxt(cdi+fspl+'.cat')
 	        # Find pixel scale from astrometry info
 			pscalx = dflyheader['PSCALX']
@@ -539,118 +547,132 @@ for cloud in objects:
 	        # Select for unflagged entries
 			cheader = catheader(cdi+fspl+'.cat')
 			catdata = catdata[where(catdata[:,cheader['FLAGS']] == 0)]
-			pfwhm = mean(catdata[:,cheader['FWHM_IMAGE']])
-			dflybeam = pfwhm*pixscale
-			print 'FWHM 1 = ',dflybeam
 			catdata = catdata[where(catdata[:,cheader['CLASS_STAR']]<1e-15)]
 	        # Find the average FWHM and convert to arcseconds
 			pfwhm = mean(catdata[:,cheader['FWHM_IMAGE']])
 			dflybeam = pfwhm*pixscale
-			print 'FWHM 2 = ',dflybeam
 			if isnan(dflybeam)==True: 
-				print 'No FWHM found'
+				if VERBOSE:
+					print 'No FWHM found'
 				continue
 	        # Add FWHM to header
 			dflyheader['FWHM'] = (dflybeam, 'arcseconds')
 			fits.writeto(ddi+f,dflydata,dflyheader,clobber=True)
 	        # If polarization data, skip
 			if dflyheader['FILTNAM'] == 'Pol':
-				print 'Skipping polarization data'
-				continue  
+				print 'Skipping polarization data in '+f
+				continue
+			if VERBOSE:
+				print 'Header up to date in '+f  
 
 	################################ PHOTOMETRY ###################################      
 	        # Choose photometered file name
 	        # Choose output location for photometry related plots
 			outplots = mdi+fspl
 	        # Run photometry
-			print 'Run photometry'
-			if OLDPHOTO:
-				pname = fspl+'_oldphoto.fits'
-			if not OLDPHOTO:
-				pname = fspl+'_photo.fits'
+			pname = fspl+'_photo.fits'
 			if (os.path.isfile(pdi+pname) != True or GENERATE == True or 
 			    PHOTOMETRY == True):
-				if OLDPHOTO:
-					pdata,dflyheader,zp = photometry(ddi+f,cdi+fspl+'.cat',
-									 APASSdir,pdi+pname, 
-									 create = True,
-									 plot = outplots)
-				if not OLDPHOTO:
-					os.system('python create_photometriclights.py -p -k -u {0} -o {1} -r {2}'.format(ddi+f,ddi,APASSdir))
-					try:
-						photodat,H = fits.getdata(ddi+f.split('.fits')[0]+'_pcapass.fits',header = True)
-						photodat = reshape(photodat,photodat,0,limval=0)
-					except IOError:
-						print 'Missing photometry'
-						continue
-					zp = H['ZP3']
-					kJperADU = float(tokjypersr(1,pixscale,zp))
-					H['kJpADU'] = (kJperADU,'kJy/sr per ADU/pixel')
-					H['M0'] = zp
-					fits.writeto(pdi+pname,photodat*kJperADU,H,clobber=True)
-					callastrometry(pdi+pname,generate=True)
-					dflyheader = H
+				if VERBOSE:
+					print 'Run photometry for '+f
+				# Use Jielai's photometery
+				os.system('python create_photometriclights.py -pkln -u {0} -o {1} -i {1} -r {2}'.format(ddi+f,ddi,APASSdir))
+				try:
+					if VERBOSE:
+						print 'Crop zeroes out of '+f
+					photodat,H = fits.getdata(ddi+f.split('.fits')[0]+'_pcapass.fits',header = True)
+					photodat = reshape(photodat,photodat,0,limval=0)
+				except IOError:
+					if VERBOSE:
+						print 'Missing photometry '+f+', skipping'
+					continue
+				if VERBOSE:
+					print 'Convert '+f+' to kJy/sr'
+				# Find zero point magnitude
+				zp = H['ZP3']
+				# Find conversion factor
+				kJperADU = float(tokjypersr(1,pixscale,zp))
+				H['kJpADU'] = (kJperADU,'kJy/sr per ADU/pixel')
+				H['M0'] = zp
+				# Write converted data to file
+				fits.writeto(pdi+pname,photodat*kJperADU,H,clobber=True)
+				# Find WCS (again why is this here?)
+				callastrometry(pdi+pname,generate=True)
+				dflyheader = H
 			elif (os.path.isfile(pdi+pname) == True and GENERATE == False and 
 			      PHOTOMETRY == False):
+				if VERBOSE:
+					print 'Load photometry data for '+f
 				pdata,dflyheader = fits.getdata(pdi+pname,header=True)
 				zp = dflyheader['M0']
 	        # If photometry failed, quit
 			if zp == 'N/A':
-				print 'Photometry failed, skipping file'
+				if VERBOSE:
+					print 'Photometry failed for '+f+', skipping'
 				continue
 	        # Convert units in object and background map
 			try:
 				convert = dflyheader['kJpADU']
 			except KeyError:
-				print 'Could not find conversion factor'
+				if VERBOSE:
+					print 'Could not find conversion factor for '+f+', skipping'
 				continue
 			pspl = pname.split('.fits')[0]
-			sexcall(pname,pdi,odi,cdi,bdi)
-			#pstar = fits.getdata(odi+spl+'_objects.fits')*convert
-			#pback = fits.getdata(bdi+spl+'_background.fits')*convert
-			#fits.writeto(odi+spl+'_photo_objects.fits',pstar,dflyheader,
-			#	     clobber=True)
-			#fits.writeto(bdi+spl+'_photo_background.fits',pback,dflyheader,
-			#	     clobber=True)
+			if GENERATE==True or fexists(odi+pspl+'_objects.fits')==False or PHOTOMETRY==True:
+				if VERBOSE:
+					print 'Creating photometered object and background maps for '+f
+				sexcall(pname,pdi,odi,cdi,bdi)
 	        
-	################################ CYCLE CORRELTION-FILES #########################
-			print 'Cycle Herschel Files'
+	################################ CYCLE CORRELATION FILES #########################
+			
+			if VERBOSE:
+				print 'Cycle through files to correlate '+f+' against'
 			for hername in herfiles:
 				skey = [i for i in spirekeys if i in hername][0]
 				herbeam = SPIRE[skey]
 
 	################################ CONVOLUTION #####################################
 	            # Create output file names
-				
 				cname = pspl+'_convto'+str(herbeam)+'.fits'
 				ocname = pspl+'_convto'+str(herbeam)+'_objects.fits'
 	            # Do convolution on sky image
-				print 'Begin convolution'
 				if (os.path.isfile(pdi+cname) == True and 
 				    GENERATE == False and CONVOLVE == False):
+					if VERBOSE:
+						print 'Getting convolved data for '+cname
 					cdata,dflyheader = fits.getdata(pdi+cname,header=True)
 				elif os.path.isfile(pdi+cname) != True or GENERATE == True or CONVOLVE == True:
+					if VERBOSE:
+						print 'Creating convolved data for '
 					cdata,dflyheader = resconvolve(pdi+pname,dflybeam,herbeam,
 								       outfile = pdi+cname,
 								       header = dflyheader)
 	            # Do convolution on object map
 				if os.path.isfile(odi+ocname) == True and GENERATE == False and CONVOLVE == False:
+					if VERBOSE:
+						print 'Getting convolved data for '+cname+' objects'
 					ocdata,oheader = fits.getdata(odi+ocname,header=True)
 				elif os.path.isfile(odi+ocname) != True or GENERATE == True or CONVOLVE == True:
+					if VERBOSE:
+						print 'Creating convolved data for '+cname+' objects'
 					ocdata,oheader = resconvolve(odi+pspl+'_objects.fits',
 	                						     dflybeam,herbeam,
 								     outfile = odi+ocname,
 								     header = dflyheader)
+				# if dlyheader = 0 it means something went wrong in convolution
 				if dflyheader == 0:
-					print 'Convolution failed, skipping file'
+					if VERBOSE:
+						print 'Convolution failed, skipping file '+f
 					continue
 
 	################################ MASK #####################################
-	            # Set cutoff for mask
-				#focdata = ocdata.flatten()
-				#focdata = sort(focdata)
-				#medi = focdata[len(focdata)/2]
-				#cutoff = 10*medi
+				if config_data['cutoff'] == 0:
+					if config_data['cutoff_type'] == 'median':
+						cutoff = config_data['cutoff_mult']*median(ocdata)
+					if config_data['cutoff_type'] == 'mean':
+						cutoff = config_data['cutoff_mult']*mean(ocdata)
+				elif config_data['cutoff'] != 0:
+					cutoff = config_data['cutoff'] 
 				print 'Do masking'
 				cutoff = 0.1
 				mapcut = fits.getdata(odi+ocname)
@@ -739,8 +761,8 @@ for cloud in objects:
 					continue
 				print 'Done ', f,'\n\n\n\n\n\n'
 		except AssertionError as e:
-			print e
-			print 'Calibrated file missing for ',f
+			if VERBOSE:
+				print e
+				print 'Calibrated file missing for ',f
 			continue
-	            #fits.writeto(hname,t,clobber=True
 
