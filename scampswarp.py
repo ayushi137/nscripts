@@ -1,28 +1,10 @@
 import os
 from numpy import *
 import subprocess
-import docopt
 
-"""
-scampswarp - creates config files for scamp and swarp and contains a 
-             a function to perform warp on image to improve astrometry
-Requires the following packages: os, numpy, subprocess, docopt
-Requires the following files: check_apassoverlap.py
-
-usage: scampswarp [-h]
-
-Options:
-    -h, --help              Show this screen
-    -v, --verbose           If True, print extra text
-
-"""
 
 catalogchecks = {}
 catalogchecks['APASS'] = 'check_apassoverlap.py'
-
-arguments = docopt.docopt(__doc__)
-
-VERBOSE = arguments['--verbose']
 
 sextractor_config = '''
     ANALYSIS_THRESH 1.5

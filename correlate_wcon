@@ -150,7 +150,7 @@ elif not LOWMEMORY:
 
 ################################ CONFIG FILE ####################################
 
-import correlate_config
+from correlate_config import *
 
 rawdir = config_data['raws']
 caldir = config_data['cals']
@@ -328,7 +328,7 @@ if files:
 	fname = breakdown.pop(-1)
 	date = breakdown.pop(-1)
 	rawdir = '/'+breakdown.pop(-1)+'/'
-	objects = breakdown.pop(-1)
+	objs = breakdown.pop(-1)
 	# Find parent directory
 	directory = '/'+'/'.join(breakdown)+'/'
 	for f in filelist:
@@ -406,6 +406,7 @@ if not files:
 			fnames = os.listdir(direc+'/'+date)
 			datenames[date] = fnames
 
+objects = objectdates.keys()
 
 if VERBOSE:
 	print 'If needed, create top level output directories.'
@@ -440,20 +441,20 @@ for cloud in objects:
 			if VERBOSE:
 				print 'Force generate calibration files'
 			if files:
-				calcom = ('python calibratedata -g -f '+
+				calcom = ('python calibratedata -gv -f '+
 					  (', ').join(filelist))
 			if not files:
-				calcom = ('python calibratedata -g  -o '+cloud+
+				calcom = ('python calibratedata -gv  -o '+cloud+
 					  ' -t '+date)
 			os.system(calcom)
 		if not GENERATE and not CALIBRATE:
 			if VERBOSE:
 				print 'Check for calibration files'
 			if files:
-				calcom = ('python calibratedata -f '+
+				calcom = ('python calibratedata -v -f '+
 					  (', ').join(filelist))
 			if not files:
-				calcom = ('python calibratedata -o '+cloud+
+				calcom = ('python calibratedata -v -o '+cloud+
 					  ' -t '+date)
 			os.system(calcom)
 	if VERBOSE:
@@ -527,8 +528,8 @@ for cloud in objects:
 
 ################################ IMAGE PROPERTIES ##############################
 	        # Read in ds-ff-ss data from file
-		if VERBOSE:
-	        	print 'Read '+f
+			if VERBOSE:
+				print 'Read '+f
 			dflyimage = fits.open(ddi+f)
 			dflydata = dflyimage[0].data
 			if VERBOSE:

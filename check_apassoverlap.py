@@ -46,11 +46,11 @@ def SelectAPASSFile(declination,apass_dir):
 
     # We only have files for a limited range of declinations for DR8; dec>90 doesn't make sense
     if declination > 20 and declination < 90:
-        apass_file = apass_dir + "zp%s_8.sum" % file_stub
+        apass_file = apass_dir + "zp%s_9.sum" % file_stub
 
     # We remainder declination range is in DR7; 
     if declination > 0 and declination < 20:
-        apass_file = apass_dir + "zp%s_7.sum" % file_stub
+        apass_file = apass_dir + "zp%s_9.sum" % file_stub
     
     if os.path.isfile(apass_file):
         print 'This apass catalog file has been selected: '+apass_file
