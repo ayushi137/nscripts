@@ -3,21 +3,39 @@
 """
 correlate - correlate Dragonfly images against Herschel images
 
-Expects a particular file system set up for Dragonfly images: 
-<parent directory>/<object name>/<subdirectory>/
-This may be followed by further subdirectories by date, or contain the files
-themselves.
+Expects a particular file system set up for images to correlate: 
+<parent directory>/<object name>/<raw_file_directory>/<date>/<image>/
+
+These images can be:
+
+1) dark subtracted and flat fielded
+2) scamped and swarped
+3) photometered
+4) convolved
+5) masked
+6) cropped
+7) background subtracted and correlated
+
+Assumes a particular file system set up for images to correlate against:
+<parent directory>/<object name>/<image>
+
+These images can be:
+
+1) masked
+2) correlated
 
 Requires the following software: sextractor, scamp, swarp astrometry.net
 Requires the following packages: numpy, scipy, astropy, docopt, matplotlib, os
 								 pandas, subprocess
 Requires the following files:    photometry.py, resconvolve.py, maskdata.py
                                  regrid.py, backgroundplane.py, 
-                                 create_photometriclights.py, scampswarp.py
+                                 create_photometriclights.py, scampswarp.py,
+                                 rewriteherschel.py
+Contains the following funcs:	 getAltAz, fexists, getsubdir, sexcall, hist2d	
 
 Usage:
-correlate [-hvlgqwpcrmb] [-d DIRECTORY] [-u DIRECTORIES] [-o OBJECTNAMES] 
-		[-s DIRECTORY] [-f FILEPATHS] [-x DIRECTORY] [-a DIRECTORY]
+correlate [-hvlgqwpcrkb] [-d DIRECTORY] [-u DIRECTORIES] [-o OBJECTNAMES] 
+		[-s DIRECTORY] [-f FILEPATHS] [-x DIRECTORY] [-a DIRECTORY] [-m MODE]
 
 Options:
     -h, --help
@@ -25,27 +43,20 @@ Options:
     -l, --lowmemory                 If True, use a version of regridding 
                                     code that does not require high memory 
                                     usage
-    -d DIRECTORY, --IOdir DIR       Location of input files (parent 
+    -d DIRECTORY, --indir DIR       Location of input files (parent 
                                     directory)
-                                    [default: dflydata/]
-    -u LIST, --unmod LIST           A list of subdirectories of --IOdir 
-                                    containing raw files and calibration 
-                                    frames
-                                    [default: /raw_lights/, /calframes/]
-    -o OBJECTS, --objects OBJS      Provide a list of object subdirectory 
-                                    names as a string
-                                    [default: PGM_1_2, spi1_1]
-    -s DIRECTORY, --sub DIR         Subdirectory containing flat-fielded and
-                                    dark subtracted images
-                                    [default: /darksub_flatfield/] 
+                                    [default: dflydata/] 
     -f FILES, --filelist FLS        Provide a list of file paths to process
                                     as a string. If empty, processes all 
-                                    file in input directory
+                                    file in input directory. Assumes input files
+                                    are in completely raw form
                                     [default: ]
     -x DIRECTORY, --cross DIR       Location of files to correlate with
                                     [default: ../herschel/]
     -a DIRECTORY, --apass DIR       Location of APASS catalogues
                                     [default: /mnt/scratch-lustre/njones/SURP2015/APASS/]
+    -m MODE, --mode MODE 			Status of input files: set to raw or calibrated
+    								[default: raw]
 Testing Options:
     -g, --generate                  If False, do not generate data from
                                     any of the following substeps unless 
@@ -62,7 +73,7 @@ Testing Options:
                                     unless convolved image missing
     -r, --regrid                    If False, do not regrid an image unless
                                     regridded image is missing
-    -m, --mask                      If False, do not mask an image unless
+    -k, --mask                      If False, do not mask an image unless
                                     masked image is missing
     -b, --backsub                   If False, do not background plane 
                                     subtract an image unless subtracted is 
@@ -85,46 +96,6 @@ from astropy.time import Time
 from astropy.coordinates import SkyCoord, EarthLocation, AltAz
 from matplotlib.colors import LogNorm
 
-################################ CONSTANTS ####################################
-# Telescope location
-lat = 32.902836
-long = -105.528350
-height = 2214
-telescope = EarthLocation(lat=lat*u.deg,lon=long*u.deg,height = 2214*u.m)
-
-# Conversion factor to transform sigma of scipy.signal.gaussian to FWHM
-s2f = 2*np.sqrt(2*log(2))
-
-# specify herschel resolution at each wavelength
-SPIRE = {'PSW':17.6,'PMW':23.9,'PLW':35.2}
-spirekeys = SPIRE.keys()
-
-# master dark location
-damdir = '/dark_masters/'
-# master flat location
-flmdir = '/flat_masters/'
-# dark subtracted files
-dsmdir = '/dark_subtracted/'
-
-# source extractor object maps
-objdir = '/objects/'
-# source extractor background maps
-bakdir = '/background/'
-# source extractor catalogue
-catdir = '/catalogue/'
-
-# OUTPUT DIRECTORIES
-# location of helper plots from zero point magnitude calculations
-magdir = '/magnitudecalcs/'
-# location of photometered fits files
-phodir = '/photometered/'
-# location of regridded images
-regdir = '/regrid/'
-# location of background plane subtracted images
-bsudir = '/backgroundsub/'
-# location of correlation plots
-cordir = '/correlations/'
-
 ########################### COMMAND LINE ARGUMENTS #############################
 
 arguments = docopt.docopt(__doc__)
@@ -136,11 +107,10 @@ LOWMEMORY = arguments['--lowmemory']
 
 # Non-mandatory options with arguments
 
-directory = arguments['--IOdir']
-rawdirs = arguments['--unmod']
-rawdir = rawdirs.split(', ')[0]
-caldir = rawdirs.split(', ')[1]
-subdir = arguments['--sub']
+directory = arguments['--indir']
+
+mode = arguments['--mode']
+
 APASSdir = arguments['--apass']
 files = arguments['--filelist']
 filelist = files.split(', ')
@@ -148,7 +118,6 @@ if filelist != ['']:
 	files = True
 elif filelist == ['']:
 	files = False
-objects = arguments['--objects'].split(', ')
 herdir = arguments['--cross']
 
 # Testing options
@@ -162,7 +131,6 @@ REGRID = arguments['--regrid']
 MASK = arguments['--mask']
 BACKSUB = arguments['--backsub']
 
-OLDPHOTO = False
 
 ############################## IMPORT FUNCTIONS ################################
 
@@ -180,10 +148,38 @@ if LOWMEMORY:
 elif not LOWMEMORY:
 	from regrid import regrid
 
+################################ CONFIG FILE ####################################
+
+import correlate_config
+
+rawdir = config_data['raws']
+caldir = config_data['cals']
+subdir = config_data['dsff']
+objects = config_data['objects']
+
+################################ CONSTANTS ####################################
+
+# Telescope location
+telescope = EarthLocation(lat=scope_lat[config_data['scope']],
+						  lon=scope_long[config_data['scope']],
+						  height = scope_alt[config_data['scope']])
+
+# Conversion factor to transform sigma of scipy.signal.gaussian to FWHM
+s2f = 2*np.sqrt(2*log(2))
+
 
 #################################### FUNCTIONS #################################
 
 def getAltAz(arr,header,time,location):
+	"""
+	Converts an array with WCS to altitude and azimuth coordinates
+	arr:	 	array of values
+	header:	 	header containing appropriate WCS solution
+	time:	 	time of observations
+	location:	location of observations
+
+	Returns a list of altitude, azimuth, xpixel and ypixel coordinates
+	"""
 	soln = wcs.WCS(header)
 	coords = cartesian([arange(arr.shape[1]),arange(arr.shape[0])])
 	world = soln.wcs_pix2world(coords,0)
@@ -192,6 +188,11 @@ def getAltAz(arr,header,time,location):
 	return altaz.alt.deg,altaz.az.deg,coords[:,0],coords[:,1]
 
 def fexists(fname):
+	"""
+	fname: 	file to check existence of
+
+	Returns True if file exists, otherwise False
+	"""
 	if os.path.isfile(fname) == True:
 		return True
 	elif os.path.isfile(fname) != True:
@@ -207,7 +208,6 @@ def getsubdir(directory):
 	"""
 	subdir=[name for name in os.listdir(directory)
 			if os.path.isdir(os.path.join(directory, name))]
-	subdir.sort()
 	subdir=['/'+name+'/' for name in subdir if '.' not in name]
 	return subdir
 
@@ -217,7 +217,7 @@ def sexcall(f,ddi,odi,cdi,bdi):
 	Run source extractor on f, producing a catalogue, and object and background maps
 
 	f:		file name to run source extractor on
-	ddi:		directory path to f
+	ddi:	directory path to f
 	odi:	directory to save object map in
 	cdi:	directory to save catalogue in
 	bdi:	directory to save background map in
@@ -233,11 +233,11 @@ def sexcall(f,ddi,odi,cdi,bdi):
 	os.system(objsexcall)
 	os.system(baksexcall)
 
-def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1,sloperr = 0):
+def hist2d(x,y,nbins = 50 ,maskval = 0,saveloc = '',labels=[],slope = 1,sloperr = 0):
 	"""
 	Creates a 2D histogram from data given by numpy's histogram
 
-	x,y:		two 2D arrays to correlate, the second masked
+	x,y:		two 2D arrays to correlate
 	nbins:		number of bins
 	maskval:	value that indicates masked areas
 				(kwarg, default = 0)
@@ -246,21 +246,17 @@ def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1,sloperr = 0):
 	labels:		labels for histogram plot, with the following format
 				[title,xlabel,ylabel,zlabel] - if unspecified, do 
 				not label plot (kwarg, default = [])
+	slope:		slope of correlation fit line (kwarg, default = 1)
+	slopeerr:	uncertainties in slope of fit line (kwarg, default = 0)
 
 	Returns the edges of the histogram bins and the 2D histogram
 
 	"""
-	# Remove NAN values
-	a = where(isnan(x) == False)
-	x = x[a]
-	y = y[a]
-	b = where(isnan(y) == False)
-	x = x[b]
-	y = y[b]
-	# Remove masked areas
-	c = where(y != maskval)
-	x = x[c]
-	y = y[c]
+	# Remove NANs and masked values
+	good = where((isnan(x) == False) & (isnan(y) == False) & (x != maskval) & (y != maskval))
+	x = x[good]
+	y = y[good]
+
 	# Create histogram
 	H,xedges,yedges = histogram2d(x,y,bins=nbins)
 	# Reorient appropriately
@@ -268,7 +264,7 @@ def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1,sloperr = 0):
 	H = flipud(H)
 	# Mask zero value bins
 	Hmasked = ma.masked_where(H==0,H)
-	# Find averages:
+	# Find average values in y:
 	yavgs = []
 	ystds = []
 	xposs = []
@@ -282,17 +278,23 @@ def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1,sloperr = 0):
 		ystds.append(ystd)
 	# Begin creating figure
 	plt.figure(figsize=(12,10))
-	# Use logscale
+	# Make histogram pixels with logscale
 	plt.pcolormesh(xedges,yedges,Hmasked,
-	               norm = LogNorm(vmin = Hmasked.min(),vmax = Hmasked.max()),
-		       cmap = plt.get_cmap('Spectral_r'))
+	               norm = LogNorm(vmin = Hmasked.min(),
+	                              vmax = Hmasked.max()),
+		       	   cmap = plt.get_cmap('Spectral_r'))
+	# Create fit line x-array
 	uplim = nmax(x)+5
 	dolim = nmin(x)-5
 	x_range = arange(dolim,uplim)
+	# Plot fit line
 	plt.plot(x_range,slope*x_range,color = 'royalblue',linewidth = 3,label = 'Slope = {0}, Uncertainty = {1}'.format(slope,sloperr))
+	# Plot average points
 	plt.errorbar(xposs,yavgs,yerr = ystds,fmt = 'D',color='k',markersize = 5)
+	# Set plot limits
 	plt.xlim(dolim+5,uplim-5)
 	plt.ylim(nmin(y),nmax(y))
+	# Add colourbar
 	cbar = plt.colorbar()
 	# Add labels
 	if labels != []:
@@ -311,29 +313,48 @@ def hist2d(x,y,nbins,maskval = 0,saveloc = '',labels=[],slope = 1,sloperr = 0):
 
 
 ######################### FIND FILES AND PREP FOR OUTPUT ######################
-# if necessary, specify observation date subdirectory names for each object 
-# in a dictionary
+
+# If file list given
 if files:
+	if VERBOSE:
+		print 'Finding objects and dates for each file in the list.'
 	objectdates = {}
 	datenames = {}
 	objectherfiles = {}
+	# Find directory where first file is located
 	breakdown = filelist[0].split('/')
 	breakdown = [i for i in breakdown if i != '']
+	# Extract file name, date, raw directory name and object
 	fname = breakdown.pop(-1)
 	date = breakdown.pop(-1)
 	rawdir = '/'+breakdown.pop(-1)+'/'
 	objects = breakdown.pop(-1)
+	# Find parent directory
 	directory = '/'+'/'.join(breakdown)+'/'
 	for f in filelist:
+		# Repeat the process of finding parent directory and file info
 		breakdown = f.split('/')
 		breakdown = [i for i in breakdown if i != '']
 		fname = breakdown.pop(-1)
 		date = breakdown.pop(-1)
+		# Confirm that the parent directory and raw file directory
+		# are the same as for the first file
 		newrawdir = '/'+breakdown.pop(-1)+'/'
-		assert newrawdir == rawdir
+		try:
+			assert newrawdir == rawdir
+		except AssertionError:
+			filelist.remove(f)
+			print 'Please choose files within '+rawdir
+			continue
 		cloud = breakdown.pop(-1)
 		newdirectory = '/'+'/'.join(breakdown)+'/'
-		assert newdirectory == directory
+		try:
+			assert newdirectory == directory
+		except AssertionError:
+			filelist.remove(f)
+			print 'Please choose files within '+directory
+			continue
+		# Update the dictionaries with directory data for this filename
 		try:
 			datenames[date].append(fname)
 		except KeyError:
@@ -342,136 +363,160 @@ if files:
 			objectdates[cloud].append(date)
 		except KeyError:
 			objectdates[cloud] = [date]
+		# Find files to correlate against
 		hdirec = herdir+'/'+cloud
-		#os.system('python rewriteherschel -d '+hdirec)
+		if config_data['rwcorrfiles']:
+			os.system('python rewriteherschel.py -d '+hdirec)
 		herfiles = os.listdir(hdirec)
-		objectherfiles[cloud] = [hdirec+'/'+i for i in herfiles 
-					 if 'reindex' in i]
+		# Attach appropriate correlate images for the cloud
+		if config_data['rwcorrfiles']:
+			objectherfiles[cloud] = [hdirec+'/'+i for i in herfiles 
+					 				 if 'reindex' in i]
+		if not config_data['rwcorrfiles']:
+			objectherfiles[cloud] = [hdirec+'/'+i for i in herfiles]
 
-objects.sort()
+# If files are not specified
 if not files:
+	if VERBOSE:
+		print 'Finding date and cloud information for this directory: '+directory
+	# Dictionaries to hold correlate file and date information
 	objectdates = {}
 	datenames = {}
 	objectherfiles = {}
 	for cloud in objects:
 		direc = directory+'/'+cloud+rawdir
 		subdirs = getsubdir(direc)
-		subdirs = [i for i in subdirs if 'all_nights' not in i]
+		# Only return date subdirectories 
+		# Since Dragonfly is new, all date stamps contain 2015
+		subdirs = [i for i in subdirs if '20' in i]
+		# List all observing dates for this cloud in dictionary
 		objectdates[cloud] = subdirs
 		hdirec = herdir+'/'+cloud
-		#os.system('python rewriteherschel.py -d '+hdirec)
+		if config_data['rwcorrfiles']:
+			os.system('python rewriteherschel.py -d '+hdirec)
 		herfiles = os.listdir(hdirec)
-		objectherfiles[cloud] = [hdirec+'/'+i for i in herfiles 
-					 if 'reindex' in i]
+		# Attach appropriate correlate images for the cloud
+		if config_data['rwcorrfiles']:
+			objectherfiles[cloud] = [hdirec+'/'+i for i in herfiles 
+					 				 if 'reindex' in i]
+		if not config_data['rwcorrfiles']:
+			objectherfiles[cloud] = [hdirec+'/'+i for i in herfiles]
+		# Find individual file names
 		for date in subdirs:
 			fnames = os.listdir(direc+'/'+date)
 			datenames[date] = fnames
-keys = objectdates.keys()
-
-# master dark location
-damdir = '/dark_masters/'
-# master flat location
-flmdir = '/flat_masters/'
-# dark subtracted files
-dsmdir = '/dark_subtracted/'
-
-# source extractor object maps
-objdir = '/objects/'
-# source extractor background maps
-bakdir = '/background/'
-# source extractor catalogue
-catdir = '/catalogue/'
 
 
-# if any of the output directories are missing, create them now
+if VERBOSE:
+	print 'If needed, create top level output directories.'
+# If any of the output directories are missing, create them now
 dirlist = [damdir,flmdir,dsmdir,objdir,bakdir,catdir,subdir,phodir,
-	   regdir,cordir,magdir,bsudir]
+	       regdir,cordir,magdir,bsudir]
 for d in dirlist:
-    for key in keys:
-        if os.path.isdir(directory+key+d) == False:
-            os.system('mkdir '+directory+key+d)
+    for cloud in objects:
+        if os.path.isdir(directory+cloud+d) == False:
+            os.system('mkdir '+directory+cloud+d)
 
-################################ STEPS #####################################
+################################ BEGIN PROCESSING #####################################
 
-for key in keys:
-    print 'OBJECT '+key
-    dates = objectdates[key]
-    herfiles = objectherfiles[key]
+for cloud in objects:
+	if VERBOSE:
+    	print 'OBJECT '+cloud
+    dates = objectdates[cloud]
+    herfiles = objectherfiles[cloud]
     for date in dates:
-        print 'DATE '+date
+    	if VERBOSE:
+        	print 'DATE '+date
 
 ################################ CALIBRATE #####################################
         fs = datenames[date]
+	# if no files found for this date skip to next
 	if fs == []:
+		if VERBOSE:
+			print 'No files here, continuing'
 		continue
+	# Do dark subtraction and flat fielding on files as a group
 	if GENERATE or CALIBRATE:
-		print 'Generate calibration files'
+		if VERBOSE:
+			print 'Force generate calibration files'
 		if files:
 			calcom = ('python calibratedata -g -f '+
 				  (', ').join(filelist))
 		if not files:
-			calcom = ('python calibratedata -g  -o '+key+
+			calcom = ('python calibratedata -g  -o '+cloud+
 				  ' -t '+date)
 		os.system(calcom)
 	if not GENERATE and not CALIBRATE:
-		print 'Check for calibration files'
+		if VERBOSE:
+			print 'Check for calibration files'
 		if files:
 			calcom = ('python calibratedata -f '+
 				  (', ').join(filelist))
 		if not files:
-			calcom = ('python calibratedata -o '+key+
+			calcom = ('python calibratedata -o '+cloud+
 				  ' -t '+date)
-		#calcom = './calibratedata.sh {0} {1} {2} {3} '.format(directory,
-		#						     key,date,
-		#caldir)
-		#calcom += '{0} {1} {2} {3} {4}'.format(rawdir,damdir,flmdir,
-		#				       dsmdir,subdir)
         	os.system(calcom)
-	print 'Create directories'
-        # Directory containing raw image files
-        di = directory+key+rawdir+date+'/'
-        # Directory containing dark subtracted and flat fielded files
-        ddi = directory+key+subdir+date+'/'
-        # Directory containing source extractor object maps
-        odi = directory+key+objdir+date+'/'
-        # Directory containing source extractor catalogues
-        cdi = directory+key+catdir+date+'/'
-        # Directory containing source extractor background maps
-        bdi = directory+key+bakdir+date+'/'
-        # Directory containing photometered images
-        pdi = directory+key+phodir+date+'/'
-        # Directory containing regridded images
-        rdi = directory+key+regdir+date+'/'
-        # Directory containing masked images
-        mdi = directory+key+magdir+date+'/'
-        # Directory containing background subtracted images
-        gdi = directory+key+bsudir+date+'/'
-        # Directory containing correlation plots
-        sdi = directory+key+cordir+date+'/'
-        # Create output directories if any are missing
-        for d in dirlist:
-            if os.path.isdir(directory+key+d+date) == False:
-                os.system('mkdir '+directory+key+d+date+'/')
+    if VERBOSE:
+		print 'Check for output directories'
+
+    # Directory containing raw image files
+    di = directory+cloud+rawdir+date+'/'
+    # Directory containing dark subtracted and flat fielded files
+    ddi = directory+cloud+subdir+date+'/'
+    # Directory containing source extractor object maps
+    odi = directory+cloud+objdir+date+'/'
+    # Directory containing source extractor catalogues
+    cdi = directory+cloud+catdir+date+'/'
+    # Directory containing source extractor background maps
+    bdi = directory+cloud+bakdir+date+'/'
+    # Directory containing photometered images
+    pdi = directory+cloud+phodir+date+'/'
+    # Directory containing regridded images
+    rdi = directory+cloud+regdir+date+'/'
+    # Directory containing masked images
+    mdi = directory+cloud+magdir+date+'/'
+    # Directory containing background subtracted images
+    gdi = directory+cloud+bsudir+date+'/'
+    # Directory containing correlation plots
+    sdi = directory+cloud+cordir+date+'/'
+
+    if VERBOSE:
+    	print 'If needed, generate lower level output directories'
+    # Create output directories if any are missing
+    for d in dirlist:
+        if os.path.isdir(directory+cloud+d+date) == False:
+            os.system('mkdir '+directory+cloud+d+date+'/')
 
 ################################ CYCLE FILES ###################################
-        for f in fs:
+    
+    for f in fs:
 		try:
-			print 'FILE '+di+f
+			if VERBOSE:
+				print 'FILE '+di+f
+
 			f = f.split('.fits')[0]+'_ds_ff.fits'
-            # Confirm calibrated file exists
-			print os.path.isfile(ddi+f)
+	  
+	        # Confirm calibrated file exists
 			assert os.path.isfile(ddi+f) == True
 			spl = f.split('.fits')[0]
 
 ################################ ASTROMETRY ####################################
+			
 			if GENERATE==True or ASTROMETRY==True:
-				print 'Do astrometry'
+				if VERBOSE:
+					print 'Do astrometry for '+f
+				scrubwcsheader(ddi+f)
 				callastrometry(ddi+f,generate=True)
 			else:
-				print 'Check for astrometry necessity'
+				if VERBOSE:
+					print 'Check for astrometry for '+f
 				callastrometry(ddi+f)
-			if GENERATE==True or ASTROMETRY==True:
+			if GENERATE==True or ASTROMETRY==True or fexists(ddi+spl+'_ss.fits') == False:
+				if VERBOSE:
+					print 'Scamp and swarp '+f
 				scampswarp(ddi+f)
+			if VERBOSE:
+				print 'Update '+f+' header with SWARP WCS'
 			oldhead = fits.getheader(ddi+f)
 			f = spl+'_ss.fits'
 			fspl = f.split('.fits')[0]
@@ -479,151 +524,171 @@ for key in keys:
 			uphead = oldhead.copy()
 			uphead.update(newhead)
 			fits.writeto(ddi+f,ssdata,uphead,clobber=True)
-################################ SEXTRACTOR ####################################
-			#if (GENERATE==True or os.path.isfile(cdi+spl+'.cat')==False or 
-			#    os.path.isfile(odi+spl+'_objects.fits')==False or 
-			#    os.path.isfile(bdi+spl+'_background.fits')==False or
-			#    ASTROMETRY==True):
-			sexcall(f,ddi,odi,cdi,bdi)
+
 ################################ IMAGE PROPERTIES ##############################
-            # Read in ds-ff-ss data from file
+	        # Read in ds-ff-ss data from file
+	        if VERBOSE:
+	        	print 'Read '+f
 			dflyimage = fits.open(ddi+f)
 			dflydata = dflyimage[0].data
+			if VERBOSE:
+				print 'Remove NAN data from '+f
 			dflydata[where(isnan(dflydata)==True)] = 0
 			dflyheader = dflyimage[0].header
 			dflyimage.close()
+			# Load WCS solution
 			soln = wcs.WCS(dflyheader)
-	    # Load catalogue data to find FWHM information
+	    	# Load catalogue data to find FWHM information
 			catdata = loadtxt(cdi+fspl+'.cat')
-            # Find pixel scale from astrometry info
+	        # Find pixel scale from astrometry info
 			pscalx = dflyheader['PSCALX']
 			pscaly = dflyheader['PSCALY']
 			pixscale = (pscalx+pscaly)/2.
-            # Select for unflagged entries
+	        # Select for unflagged entries
 			cheader = catheader(cdi+fspl+'.cat')
 			catdata = catdata[where(catdata[:,cheader['FLAGS']] == 0)]
-			pfwhm = mean(catdata[:,cheader['FWHM_IMAGE']])
-			dflybeam = pfwhm*pixscale
-			print 'FWHM 1 = ',dflybeam
 			catdata = catdata[where(catdata[:,cheader['CLASS_STAR']]<1e-15)]
-            # Find the average FWHM and convert to arcseconds
+	        # Find the average FWHM and convert to arcseconds
 			pfwhm = mean(catdata[:,cheader['FWHM_IMAGE']])
 			dflybeam = pfwhm*pixscale
-			print 'FWHM 2 = ',dflybeam
 			if isnan(dflybeam)==True: 
-				print 'No FWHM found'
+				if VERBOSE:
+					print 'No Dragonfly resolution found'
 				continue
-            # Add FWHM to header
+	        # Add FWHM to header
 			dflyheader['FWHM'] = (dflybeam, 'arcseconds')
 			fits.writeto(ddi+f,dflydata,dflyheader,clobber=True)
-            # If polarization data, skip
+	        # If polarization data, skip
 			if dflyheader['FILTNAM'] == 'Pol':
-				print 'Skipping polarization data'
-				continue  
+				print 'Skipping polarization data in '+f
+				continue
+			if VERBOSE:
+				print 'Header up to date in '+f  
 
-################################ PHOTOMETRY ###################################      
-            # Choose photometered file name
-            # Choose output location for photometry related plots
+	################################ PHOTOMETRY ###################################      
+	        # Choose photometered file name
+	        # Choose output location for photometry related plots
 			outplots = mdi+fspl
-            # Run photometry
-			print 'Run photometry'
-			if OLDPHOTO:
-				pname = fspl+'_oldphoto.fits'
-			if not OLDPHOTO:
-				pname = fspl+'_photo.fits'
+	        # Run photometry
+			pname = fspl+'_photo.fits'
 			if (os.path.isfile(pdi+pname) != True or GENERATE == True or 
 			    PHOTOMETRY == True):
-				if OLDPHOTO:
-					pdata,dflyheader,zp = photometry(ddi+f,cdi+fspl+'.cat',
-									 APASSdir,pdi+pname, 
-									 create = True,
-									 plot = outplots)
-				if not OLDPHOTO:
-					os.system('python create_photometriclights.py -p -k -u {0} -o {1} -r {2}'.format(ddi+f,ddi,APASSdir))
-					try:
-						photodat,H = fits.getdata(ddi+f.split('.fits')[0]+'_pcapass.fits',header = True)
-						photodat = reshape(photodat,photodat,0,limval=0)
-					except IOError:
-						print 'Missing photometry'
-						continue
-					zp = H['ZP3']
-					kJperADU = float(tokjypersr(1,pixscale,zp))
-					H['kJpADU'] = (kJperADU,'kJy/sr per ADU/pixel')
-					H['M0'] = zp
-					fits.writeto(pdi+pname,photodat*kJperADU,H,clobber=True)
-					callastrometry(pdi+pname,generate=True)
-					dflyheader = H
+				if VERBOSE:
+					print 'Run photometry for '+f
+				# Use Jielai's photometery
+				os.system('python create_photometriclights.py -pklnv -u {0} -o {1} -i {1} -r {2}'.format(ddi+f,ddi,APASSdir))
+				try:
+					if VERBOSE:
+						print 'Crop zeroes out of '+f
+					photodat,H = fits.getdata(ddi+f.split('.fits')[0]+'_pcapass.fits',header = True)
+					photodat = reshape(photodat,photodat,0,limval=0)
+				except IOError:
+					if VERBOSE:
+						print 'Missing photometry for '+f+', skipping'
+					continue
+				if VERBOSE:
+					print 'Convert '+f+' to kJy/sr'
+				# Find zero point magnitude
+				zp = H['ZP3']
+				# Find conversion factor
+				kJperADU = float(tokjypersr(1,pixscale,zp))
+				H['kJpADU'] = (kJperADU,'kJy/sr per ADU/pixel')
+				H['M0'] = zp
+				# Write converted data to file
+				fits.writeto(pdi+pname,photodat*kJperADU,H,clobber=True)
+				# Find WCS (again why is this here?)
+				callastrometry(pdi+pname,generate=True)
+				dflyheader = H
 			elif (os.path.isfile(pdi+pname) == True and GENERATE == False and 
 			      PHOTOMETRY == False):
+				if VERBOSE:
+					print 'Load photometry data for '+f
 				pdata,dflyheader = fits.getdata(pdi+pname,header=True)
 				zp = dflyheader['M0']
-            # If photometry failed, quit
+	        # If photometry failed, quit
 			if zp == 'N/A':
-				print 'Photometry failed, skipping file'
+				if VERBOSE:
+					print 'Photometry failed for '+f+', skipping'
 				continue
-            # Convert units in object and background map
+	        # Convert units in object and background map
 			try:
 				convert = dflyheader['kJpADU']
 			except KeyError:
-				print 'Could not find conversion factor'
+				if VERBOSE:
+					print 'Could not find conversion factor for '+f+', skipping'
 				continue
 			pspl = pname.split('.fits')[0]
-			sexcall(pname,pdi,odi,cdi,bdi)
-			#pstar = fits.getdata(odi+spl+'_objects.fits')*convert
-			#pback = fits.getdata(bdi+spl+'_background.fits')*convert
-			#fits.writeto(odi+spl+'_photo_objects.fits',pstar,dflyheader,
-			#	     clobber=True)
-			#fits.writeto(bdi+spl+'_photo_background.fits',pback,dflyheader,
-			#	     clobber=True)
-            
-################################ CYCLE CORRELTION-FILES #########################
-			print 'Cycle Herschel Files'
+			if GENERATE==True or fexists(odi+pspl+'_objects.fits')==False or PHOTOMETRY==True:
+				if VERBOSE:
+					print 'Creating photometered object and background maps for '+f
+				sexcall(pname,pdi,odi,cdi,bdi)
+	        
+	################################ CYCLE CORRELATION FILES #########################
+			
+			if VERBOSE:
+				print 'Cycle through files to correlate '+f+' against'
 			for hername in herfiles:
 				skey = [i for i in spirekeys if i in hername][0]
 				herbeam = SPIRE[skey]
 
-################################ CONVOLUTION #####################################
-                # Create output file names
-				
+	################################ CONVOLUTION #####################################
+	            # Create output file names
 				cname = pspl+'_convto'+str(herbeam)+'.fits'
 				ocname = pspl+'_convto'+str(herbeam)+'_objects.fits'
-                # Do convolution on sky image
-				print 'Begin convolution'
+	            # Do convolution on sky image
 				if (os.path.isfile(pdi+cname) == True and 
 				    GENERATE == False and CONVOLVE == False):
+					if VERBOSE:
+						print 'Getting convolved data for '+cname
 					cdata,dflyheader = fits.getdata(pdi+cname,header=True)
 				elif os.path.isfile(pdi+cname) != True or GENERATE == True or CONVOLVE == True:
+					if VERBOSE:
+						print 'Creating convolved data for '
 					cdata,dflyheader = resconvolve(pdi+pname,dflybeam,herbeam,
 								       outfile = pdi+cname,
 								       header = dflyheader)
-                # Do convolution on object map
+	            # Do convolution on object map
 				if os.path.isfile(odi+ocname) == True and GENERATE == False and CONVOLVE == False:
+					if VERBOSE:
+						print 'Getting convolved data for '+cname+' objects'
 					ocdata,oheader = fits.getdata(odi+ocname,header=True)
 				elif os.path.isfile(odi+ocname) != True or GENERATE == True or CONVOLVE == True:
+					if VERBOSE:
+						print 'Creating convolved data for '+cname+' objects'
 					ocdata,oheader = resconvolve(odi+pspl+'_objects.fits',
-                    						     dflybeam,herbeam,
+	                						     dflybeam,herbeam,
 								     outfile = odi+ocname,
 								     header = dflyheader)
+				# if dlyheader = 0 it means something went wrong in convolution
 				if dflyheader == 0:
-					print 'Convolution failed, skipping file'
+					if VERBOSE:
+						print 'Convolution failed, skipping file '+f
 					continue
 
-################################ MASK #####################################
-                # Set cutoff for mask
-				#focdata = ocdata.flatten()
-				#focdata = sort(focdata)
-				#medi = focdata[len(focdata)/2]
-				#cutoff = 10*medi
-				print 'Do masking'
-				cutoff = 0.1
+	################################ MASK #####################################
+				if VERBOSE:
+					print 'Setting cutoff'
+				# find information for setting cutoff value (kJy/sr) from config file
+				# Either create cutoff from map values
+				if config_data['cutoff'] == 0:
+					if config_data['cutoff_type'] == 'median':
+						cutoff = config_data['cutoff_mult']*median(ocdata)
+					if config_data['cutoff_type'] == 'mean':
+						cutoff = config_data['cutoff_mult']*mean(ocdata)
+				# or set hard cutoff for all maps
+				elif config_data['cutoff'] != 0:
+					cutoff = config_data['cutoff'] 
+				if VERBOSE:
+					print 'Masking'
+				# Create map to which pixels should be masked
 				mapcut = fits.getdata(odi+ocname)
 				mapcut[where(mapcut > cutoff)] = 0
-                # Create mask name
+	            # Create mask name
 				mspl = cname.split('.fits')[0]
 				mname = mspl+'_mask{0}kJysr.fits'.format(cutoff)
 				fits.writeto(odi+mspl+'_mask{0}kJysr_objects.fits'.format(cutoff),mapcut,dflyheader,clobber=True)
 
-                # Mask data
+	            # Mask data
 				if os.path.isfile(pdi+mname) == True and GENERATE == False and MASK == False:
 					mdata,dflyheader = fits.getdata(pdi+mname,header=True)
 					target = fits.getdata(hername)
@@ -634,21 +699,19 @@ for key in keys:
 								    outfile = pdi+mname,
 								    header = dflyheader)
 				p0 = [2,1,1,1]
-################################ RESHAPE #####################################  
-				print 'Do reshape'
+	################################ CROP #####################################  
+				if VERBOSE:
+					print 'Cropping masked image back to a rectangle'
 				mspl = mname.split('.fits')[0]
 				ress = np.sqrt((dflybeam/s2f)**2+(herbeam/s2f)**2)
 				r = reshape(mdata,mdata,2*ress)
 				t = reshape(target,mdata,2*ress)
-
-################################ REGRID #####################################
-				rname = mspl+'_regrid.fits'
-				hname = hername.split('.fits')[0]
-				hname = hname+'_reshaped.fits'
+				rname = mspl+'_crop.fits'
 				fits.writeto(rdi+rname,r,dflyheader,clobber=True)
 
-################################ BACK-SUB #####################################
-				print 'Background plane fit'
+	################################ BACK-SUB #####################################
+				if VERBOSE:
+					print 'Performing background plane fit and creating correlation'
 				rspl = rname.split('.fits')[0]
 				bname = rspl+'_backsub.fits'
 				p0 = [2,1,1,1]
@@ -702,8 +765,8 @@ for key in keys:
 					continue
 				print 'Done ', f,'\n\n\n\n\n\n'
 		except AssertionError as e:
-			print e
-			print 'Calibrated file missing for ',f
+			if VERBOSE:
+				print e
+				print 'Calibrated file missing for ',f
 			continue
-                #fits.writeto(hname,t,clobber=True
 

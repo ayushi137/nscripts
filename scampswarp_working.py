@@ -1,6 +1,28 @@
 import os
 from numpy import *
 import subprocess
+import docopt
+
+"""
+scampswarp - creates config files for scamp and swarp and contains a 
+             a function to perform warp on image to improve astrometry
+Requires the following packages: os, numpy, subprocess, docopt
+Requires the following files: check_apassoverlap.py
+
+usage: scampswarp [-h]
+
+Options:
+    -h, --help              Show this screen
+    -v, --verbose           If True, print extra text
+
+"""
+
+catalogchecks = {}
+catalogchecks['APASS'] = 'check_apassoverlap.py'
+
+arguments = docopt.docopt(__doc__)
+
+VERBOSE = arguments['--verbose']
 
 sextractor_config = '''
     ANALYSIS_THRESH 1.5
@@ -93,24 +115,44 @@ default_nnw = """NNW
  1.00000e+00 
 """   
 
-def scampswarp(image,interptype = 'LANCZOS3'):
+def scampswarp(image,interptype = 'LANCZOS3',cattype = 'APASS'):
+    """
+    image - name of image to scamped and swarped
+    intertype - interpolation method
+
+    Updates image and resuffixes it with _ss.fits - saves
+    in original image location.
+    """
+    # Extract directory
     bits = image.split('/')
     name = bits.pop(-1)
     imdir = '/'.join(bits)+'/'
+    # Choose output image name
     imageout = name.split('.fits')[0]+'_ss.fits'
+    # Choose catalog name
     catalog = image.split('.fits')[0]+'.cat'
-    os.system('python /mnt/scratch-lustre/njones/SURP2015/nscripts/check_apassoverlap.py -v -s /opt/sextractor/2.8.6/bin/sex -r /mnt/scratch-lustre/njones/SURP2015/nscripts/APASS save '+image)
+    # Check that the chosen catalog overlaps with data
+    os.system('python '+catalogchecks[cattype]+' -v -s /opt/sextractor/2.8.6/bin/sex -r /mnt/scratch-lustre/njones/SURP2015/nscripts/APASS save '+image)
+    # Run sextractor
     os.system('sex -c default.sex '+image)
+    # rename catalog
     os.system('mv test.cat '+catalog)
+    # Run scamp
     os.system('scamp -c scamp.default '+catalog)
+    # Run swarp
     os.system('swarp -c swarp.default '+image)
+    # Rename output image
     os.system('mv coadd.fits '+imdir+imageout)
-    os.system('python /mnt/scratch-lustre/njones/SURP2015/nscripts/check_apassoverlap.py -v -s /opt/sextractor/2.8.6/bin/sex -r /mnt/scratch-lustre/njones/SURP2015/nscripts/APASS save '+imdir+imageout)
+    # Check overlap with catalog again
+    os.system('python '+catalogchecks[cattype]+' -v -s /opt/sextractor/2.8.6/bin/sex -r /mnt/scratch-lustre/njones/SURP2015/nscripts/APASS save '+imdir+imageout)
 
 
 
 if __name__ == '__main__': 
+    # Choose background sigma detection threshold
     detect_thresh = 50
+    # Choose config file names. These are the default names, changing them
+    # means updating the config files with new file names
     sextractor_config_name = "scamp.sex"
     params_name = "scamp.param"
     nnw_name = "default.nnw"
@@ -118,8 +160,10 @@ if __name__ == '__main__':
     scamp_config_name = "default.scamp"
     swarp_config_name = "default.swarp"
 
-    verbose_type = "NORMAL"
+    if VERBOSE:
+        verbose_type = "NORMAL"
 
+    # Write config files for sextractor
     fp = open(sextractor_config_name, "w+")
     fp.write(sextractor_config.format(detect_thresh=detect_thresh, filter_name=conv_name,
         parameters_name=params_name, starnnw_name=nnw_name, verbose_type=verbose_type))

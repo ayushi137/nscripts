@@ -2,36 +2,51 @@
 
 """create_photometriclights.py -- based on APASS catalog, flatten light frames. 
 
-Usage:
-    zeropoint2 [-h] [-v] [-c] [-u] [-p] [-x NUMBER] [-X NUMBER] [-y NUMBER] [-Y NUMBER] [-m NUMBER] [-t NUMBER] [-e ARCSEC] [-d NUMBER] [-f FILTER] [-r DIRECTORY] [-s LOCATION] [-o DIRECTORY] [-k] <catalog>
+Usage: create_photometriclights [-h] [-v] [-c] [-p] [-u] [-m NUMBER] [-x NUMBER] [-t NUMBER] [-e ARCSEC] [-d SIGMA] [-f FILTER] [-r DIRECTORY] [-s LOCATION] [-o DIRECTORY] [-i DIRECTORY] [-k] [-l] [-n] <image>
 
 Options:
     -h, --help                                  Show this screen
     -v, --verbose                               Show extra information [default: False]      
-    -e ARCSEC, --error=ARCSEC                   Maximum allowable separation in arcsec [default: 2.2]
-    -d NUMBER, --dropsig NUMBER                 Sources with zeropoints outside this number of sigmas of mean is excluded [default: 2.3] 
-    -p --plot                                   Plot the data and save in same directory as input catalog or image.
     -c, --cache                                 Create/use APASS catalog cache [default: False]
+    -p --plot                                   Plot the data and save in same directory as input catalog or image.
     -u, --update                                Update image headers with information from the catalog
-    -f FILTER, --filter FILTER                  Name of the filter ('g', 'r'); By default, FILTNAM is read from fits file if supplied. 
-    -x NUMBER, --xmin NUMBER
-    -X NUMBER, --xmax NUMBER
-    -y NUMBER, --ymin NUMBER
-    -Y NUMBER, --ymax NUMBER
-    -m NUMBER, --magmin NUMBER
-    -t NUMBER, --threshold NUMBER               Number of sigma to threshold [default: 10]
-    -r DIRECTORY, --refcat DIRECTORY            The directory containing the reference APASS catalogs [default: /mnt/scratch-lustre/njones/SURP2015/nscripsts/APASS/]
-    -s LOCATION, --sex LOCATION                 Location of SExtractor executable [default: /opt/sextractor/2.8.6/bin/sex]
+    -m NUMBER, --magmin NUMBER                  No sources brighter than this magnitude is included in photometry analysis [default: 13.5]
+    -x NUMBER, --magmax NUMBER                  No sources dimmer than this magnitude is included in photometry analysis [default: 16.5]
+    -t NUMBER, --threshold NUMBER               Number of sigma to threshold in SExtractor [default: 10]
+    -e ARCSEC, --error=ARCSEC                   Maximum allowable separation in arcsec [default: 2.0]
+    -d SIGMA, --dropsig SIGMA                   Sources with zeropoints outside this number of sigmas of mean is excluded [default: 2.2] 
+    -f FILTER, --filter FILTER                  Name of the filter ('g', 'r'); By default, FILTNAM is read from fits file if supplied.
+    -r DIRECTORY, --refcat DIRECTORY            The directory containing the reference APASS catalogs
+    -s LOCATION, --sex LOCATION                 Location of SExtractor executable [default: /opt/local/bin/sex]
     -o DIRECTORY, --outputdir DIRECTORY         Output directory name  [default: .]
-    -k, --kfit                                  Correct for the colour term
-    
+    -i DIRECTORY, --inspectdir DIRECTORY        Output directory for photometry models for inspection
+    -k, --kfit                                  Correct for the colour term 
+    -l, --planefit                              Fit a plane to zeropoint residue and divide it out
+    -n, --vinettefit                            Fit a radial profile to zeropoint residue with centre of profile as free variable
 
 Examples:
-    python zeropoint2.py -v -s C:\\Users\\abrah_000\\Desktop\\test.cat
-    python zeropoint2.py -v --gband C:\\Users\\abrah_000\\Desktop\\test.cat
-    python zeropoint2.py -v -c --airmasscorrect /Volumes/savehere/ image.fits
-
+    create_photometriclights -v -c -u -p -m 13 -r /Volumes/data/dragonfly/data/dragonflysurvey/APASS/ -k -l -n light.fits
+    create_photometriclights -v -c -u -p -m 13 -r /Volumes/data/dragonfly/data/dragonflysurvey/APASS/ -l -n light.fits
 """
+
+# Changes:
+# catalog --> image
+# -x -X -y -Y options taken out
+# determine_filter is written up as a function instead of inline
+# delete mentions of flux_aper (output parameter of sextractor)
+# remove reading in of flux_radius, class_star, flags from sextracter catalog (coz it's not mentioned again)
+# add in print error message if input file declination centre < 0
+# for colour fit, fit x errors and take average
+# plane and radial fit now all in if statement
+# plane and radial fit both take in errors
+# z plane fit changed to be fitting res
+# z radial fit changed to be fitting res 
+# changed variable names throughout into standard as described in ipad notes
+# changed variable names in radial_fit_wrapper to be appropriate to fitting res instead of clipped zero points
+# increase plot by a new column. no 3rd row 5th plot 
+# colour term: Rsq2        = (Rsq2_1 + Rsq2_2)
+# weighting of radial fit is same as planar fit = APASS+SExtractor+colour term fit residue.
+
 import os.path
 import math
 import sys
@@ -59,8 +74,6 @@ from astropy.modeling import models, fitting
 
 from scipy.optimize import curve_fit
 
-from photometrypack import *
-
 def print_verbose_string(printme):
     print >> sys.stderr, "VERBOSE: %s" % printme
 
@@ -84,7 +97,6 @@ class FilterError(ZeroPointError):
 # Returns the full path to the APASS file corresponding to a given declination.
 
 def SelectAPASSFile(declination,apass_dir):
-
     # We only have files for a limited range of declinations for DR8
     #if declination < 20:
     #    return(None)
@@ -93,10 +105,14 @@ def SelectAPASSFile(declination,apass_dir):
     #if declination > 90:
     #    return(None)
 
-    # Return the filename stub by rounding down to the
-    # nearest 5 degrees in declination. So 52.1 => 50,
-    # 58.1 => 55, etc.
-    file_stub = int(5 * int(float(declination)/5))
+    if declination > 0:
+        #Return the filename stub by rounding down to nearest 5deg in dec
+        #E.g. 52.1 --> 50, 59.9 --> 55
+        file_stub = int(5 * int(float(declination)/5))
+    else:
+        #Return the filename stub by rounding up to nearest 5deg in dec
+        #E.g. -0.5 --> 5, -4.8 --> 5, -11 --> 15
+        file_stub = int(5 * numpy.ceil(float(abs(declination))/5))
     # if dec is less than 10, e.g. 0 or 5, file name is 00 or 05 and not 0 or 5.
     if file_stub <10:
         file_stub = '0'+str(file_stub)
@@ -105,13 +121,18 @@ def SelectAPASSFile(declination,apass_dir):
     if declination > 20 and declination < 90:
         apass_file = apass_dir + "zp%s_8.sum" % file_stub
 
-    # We remainder declination range is in DR7; 
+    # We remainder declination range is in DR9; 
     if declination > 0 and declination < 20:
-        apass_file = apass_dir + "zp%s_7.sum" % file_stub
-    print apass_file
+        apass_file = apass_dir + "zp%s_9.sum" % file_stub
+
+    # For declination < 0, files are in DR9
+    if declination < 0:
+        apass_file = apass_dir + "zm%s_9.sum" % file_stub
+
     if os.path.isfile(apass_file):
         return(apass_file)
     else:
+        print 'no appropriate apass catalog file was found'
         return(None)
 
 
@@ -140,34 +161,62 @@ def LoadAPASSFile(filename, min_ra, max_ra, verbose=False):
     if ( (max_ra - min_ra) > 180.0 ):
         if verbose:
             print "RA range of data 'wraps around' the 24h mark."
-        start1 = numpy.searchsorted( aacat.ra.values, max_ra, 'left' )
-        end1 = len( aacat.ra ) - 1
-        indices1 = numpy.arange( start1, end1 )
-        start2 = 0
-        end2 = numpy.searchsorted( aacat.ra.values, min_ra, 'right' )
-        indices2 = numpy.arange( start2, end2 )
-        indices = numpy.concatenate( (indices1,indices2) )
+        indices1 = numpy.where( (aacat.ra.values > max_ra) )
+        indices2 = numpy.where( (aacat.ra.values < min_ra) )
+        indices = numpy.concatenate( (indices1[0],indices2[0]) )
     else:
-        indices = numpy.where((aacat.ra.values > min_ra) & (aacat.ra.values < max_ra))
+        indices = numpy.where( (aacat.ra.values < max_ra) & (aacat.ra.values > min_ra) )[0]
     if verbose:
         print "Number of objects remaining: %d" % len(indices)  
 
     # Convert from NDFrame to ndarray data type
-    #name = aacat.name[indices].values
-    name = aacat.name.values[indices]
-    #ra = aacat.ra[indices].values
-    ra = aacat.ra.values[indices]
-    #dec = aacat.dec[indices].values
-    dec = aacat.dec.values[indices]
-    #g = aacat.g[indices].values
-    g = aacat.g.values[indices]
-    #r = aacat.r[indices].values
-    r = aacat.r.values[indices]
-    #gerr = aacat.gerr[indices].values
-    gerr = aacat.gerr.values[indices]
-    #rerr = aacat.rerr[indices].values
-    rerr = aacat.rerr.values[indices] 
+    name = aacat.name[indices].values
+    ra = aacat.ra[indices].values
+    dec = aacat.dec[indices].values
+    g = aacat.g[indices].values
+    gerr = aacat.gerr[indices].values
+    r = aacat.r[indices].values
+    rerr = aacat.rerr[indices].values
+
     return(name, ra, dec, g, r, gerr, rerr)
+
+def determine_filter(catalog,band):
+    if band == None:
+        hdulist = fits.open(catalog)
+        hdu = hdulist[0]
+        hdulist.close()
+        if 'FILTNAM' not in hdu.header.keys():
+            print 'No filter information in header, making some assumptions'
+            if hdu.header['SERIALNO'] in ['83F010687','83F010783','83F010820','83F010827']:
+                band = 'SloanG'
+            elif hdu.header['SERIALNO'] in ['83F010692','83F010730','83F010784','83F010826']:
+                band = 'SloanR'
+        else:
+            band = hdu.header['FILTNAM']
+
+        if band == None: 
+            raise FilterError("Filter unknown. Specify a filter using the -f keyword.")
+        elif re.search('SloanG',band):
+            band = 'g-band'
+        elif re.search('SloanR',band):
+            band = 'r-band'
+        else:
+            raise FilterError("Filter unknown. Specify a filter using the -f keyword.")
+        if verbose:
+            print_verbose_string( "Filter determined from header: %s" % band )
+    elif re.search('SloanG',band):
+        band = 'g-band'
+    elif re.search('^g',band):
+        band = 'g-band'
+    elif re.search('SloanR',band):
+        band = 'r-band'
+    elif re.search('^r',band):
+        band = 'r-band'
+    else:
+        raise FilterError("Filter unknown. Specify a filter using the -f keyword. Known filters: g, r.")
+
+    return band
+
 
 # SExtractor configuration files
 
@@ -274,11 +323,11 @@ default_nnw = """NNW
 def create_catalog(image_name, detect_thresh=10):
 
     # Create a config, param, conv, nnw file for Sextractor
-    sextractor_config_name = "scamp.sex"
-    params_name = "scamp.param"
-    nnw_name = "default.nnw"
-    conv_name = "default.conv"
-    catalog_name = "cz.cat"
+    sextractor_config_name = "/tmp/scamp.sex"
+    params_name = "/tmp/scamp.param"
+    nnw_name = "/tmp/default.nnw"
+    conv_name = "/tmp/default.conv"
+    catalog_name = "/tmp/cz.cat"
     if verbose:
         verbose_type = "NORMAL"
     else:
@@ -302,47 +351,6 @@ def create_catalog(image_name, detect_thresh=10):
     subprocess.call(sex_loc+" -c {config} -CATALOG_NAME {catalog} -CHECKIMAGE_NAME '{back_name} {filteredback_name}' {image}".format(config=sextractor_config_name, catalog=catalog_name, back_name=backname, filteredback_name=filteredbackname, image=image_name), shell=True)
 
     return catalog_name
-
-def getimsize(image_name):
-    h = fits.getheader(image_name)
-    naxis1=h['NAXIS1']
-    naxis2=h['NAXIS2']
-    return naxis1,naxis2
-
-def save_image(image, factor_map, newimage_dir, suffix='pc', savemap=False):
-    
-    # Divide image by factor map
-    old_data    = fits.getdata(image)
-    header  = fits.getheader(image)
-    new_data    = old_data/factor_map
-
-    # Include all header entries in old image into the new image
-    hduP            = fits.PrimaryHDU(new_data)
-    hdulist_final   =fits.HDUList(hduP)
-    hdulist_final[0].header.update(header)
-
-    # Save photometry corrected frame
-    image_basename  = image.split('/')[-1]
-    image_basename  = image_basename.split('.')[-2]
-    new_image_name  = newimage_dir + '/' + image_basename + '_'+suffix +'.fits' 
-    if os.path.exists(new_image_name):
-        os.remove(new_image_name)
-    hdulist_final.writeto(new_image_name)
-
-    if savemap:
-        basename    = image.split('/')[-1]
-        # Save factor map
-        factor_map_name  = newimage_dir + '/' + basename.split('.')[-2] + '_'+suffix+'map'+'.fits'
-        hduP        = fits.PrimaryHDU(factor_map)
-        hdulist_final   =fits.HDUList(hduP)
-        hdulist_final[0].header.update(header)
-        if os.path.exists(factor_map_name):
-            os.remove(factor_map_name)
-        if verbose:
-            print 'factor map is saved to ' + factor_map_name
-        hdulist_final.writeto(factor_map_name)
-        
-    return new_image_name
 
 def curve_fit_wrapper(m0_mADU,C,y_sig):
     # This application of linear least squares doesn't using weights
@@ -370,7 +378,7 @@ def curve_fit_wrapper(m0_mADU,C,y_sig):
 def magfunc(x, z0, m):
     return z0 + m*x
 
-def surffit(x,y,var,deg=1):
+def surffit_plane(x,y,var,weights,deg=1):
     # Fit a tilted plane to var maps
     p_init = models.Polynomial2D(degree=deg)
     fit_p  = fitting.LevMarLSQFitter()
@@ -378,138 +386,153 @@ def surffit(x,y,var,deg=1):
     with warnings.catch_warnings():
         # Ignore model linearity warning from the fitter
         warnings.simplefilter('ignore')
-        p = fit_p(p_init, x, y, var)
+        p = fit_p(p_init, x, y, z=var, weights=weights)
 
     return p
 
-####################### BODY OF PROGRAM STARTS HERE ########################
+def getimsize(image_name):
+    h = fits.getheader(image_name)
+    naxis1=h['NAXIS1']
+    naxis2=h['NAXIS2']
+    return naxis1,naxis2
+
+def save_image(image, factor_map, newimage_dir, inspect_dir, suffix='pc'):
+    
+    # Divide image by factor map
+    old_data    = fits.getdata(image)
+    header  = fits.getheader(image)
+    new_data    = old_data/factor_map
+
+    # Include all header entries in old image into the new image
+    hduP            = fits.PrimaryHDU(new_data)
+    hdulist_final   =fits.HDUList(hduP)
+    hdulist_final[0].header.update(header)
+
+    # Save photometry corrected frame
+    image_basename  = image.split('/')[-1]
+    image_basename  = image_basename.split('.')[-2]
+    new_image_name  = newimage_dir + '/' + image_basename + '_'+suffix +'.fits' 
+    if os.path.exists(new_image_name):
+        os.remove(new_image_name)
+    hdulist_final.writeto(new_image_name)
+
+    if inspect_dir:
+        basename    = image.split('/')[-1]
+        # Save factor map
+        factor_map_name  = inspect_dir + '/' + basename.split('.')[-2] + '_'+suffix+'map'+'.fits'
+        hduP        = fits.PrimaryHDU(factor_map)
+        hdulist_final   =fits.HDUList(hduP)
+        hdulist_final[0].header.update(header)
+        if os.path.exists(factor_map_name):
+            os.remove(factor_map_name)
+        if verbose:
+            print 'factor map is saved to ' + factor_map_name
+        hdulist_final.writeto(factor_map_name)
+        
+    return new_image_name
+
+
+def radial_fit_wrapper(zvalue,xy,z_sig,magfunc_radial):
+    popt, pconv = curve_fit(magfunc_radial, xy, zvalue, absolute_sigma=True, sigma=z_sig)
+    c0 = popt[0]
+    c1  = popt[1]
+    xc = popt[2]
+    yc = popt[3]
+    # Calculate errors
+    N = len(xy)
+    c0_var = pconv[0][0]
+    c1_var = pconv[1][1]
+    xc_var = pconv[2][2]
+    yc_var = pconv[3][3]
+    z_fit  = magfunc_radial(xy, c0, c1,xc,yc)
+    res4   = z_fit - zvalue
+    res4_var = numpy.sum( res4**2 ) / (N-1)
+    # Goodness of fit measure R2
+    z_mean = numpy.mean(xy)
+    ESS = numpy.sum( (z_fit-z_mean)**2 )
+    TSS = numpy.sum( (zvalue-z_mean)**2 )
+    Rsq = ESS/TSS
+    return c0,c1,xc,yc,c0_var,c0_var,xc_var,yc_var,res4,res4_var,Rsq
+
+def magfunc_radial(xy, c0, c1, xc, yc):
+    return c0 + c1*( numpy.sqrt(  (xy[0]-xc)**2 + (xy[1]-yc)**2 )  )
+
+def calc_theta(clipped_x, clipped_y, x_centre, y_centre):
+    diffy = clipped_y - y_centre
+    diffx = clipped_x - x_centre
+    clipped_xytheta=numpy.arctan2(diffy, diffx) * 180 / numpy.pi
+    return clipped_xytheta
+
+ ####################### BODY OF PROGRAM STARTS HERE ########################
 
 if __name__ == "__main__":
 
     arguments = docopt.docopt(__doc__)
 
     # Mandatory argument
-    catalog = arguments['<catalog>']
+    inputfits = arguments['<image>']
 
     # Non-mandatory options without arguments
-    verbose = arguments['--verbose']
-    cache = arguments['--cache']
-    update = arguments['--update']
-    show_plot = arguments['--plot']
+    verbose     = arguments['--verbose']
+    cache       = arguments['--cache']
+    update      = arguments['--update']
+    show_plot   = arguments['--plot']
     correctcolour = arguments['--kfit']
+    correctplane  = arguments['--planefit']
+    correctradial = arguments['--vinettefit']   
 
     # Non-mandatory options with arguments
-    band = arguments['--filter']
-    saveim_dir = arguments['--outputdir']
+    band        = arguments['--filter']
+    saveim_dir  = arguments['--outputdir']
+    inspect_dir = arguments['--inspectdir']
 
     maximum_error = arguments['--error']
     if maximum_error == None:
         maximum_error = 1.5;
     maximum_error = float(maximum_error)/3600.0   # Convert to degrees
 
-    xmin = arguments['--xmin']
-    if xmin == None:
-        xmin = 0
-    else:
-        xmin = float(xmin)
-
-    xmax = arguments['--xmax']
-    if xmax == None:
-        xmax = 1000000
-    else:
-        xmax = float(xmax)
-
-    ymin = arguments['--ymin']
-    if ymin == None:
-        ymin = 0
-    else:
-        ymin = float(ymin)
-
-    ymax = arguments['--ymax']
-    if ymax == None:
-        ymax = 1000000
-    else:
-        ymax = float(ymax)
-
     magmin = arguments['--magmin']
-    if magmin == None:
-        magmin = 0 
-    else:
-        magmin = float(magmin)
+    magmin = float(magmin)
+    magmax = arguments['--magmax']
+    magmax = float(magmax)
 
     detect_sigma = arguments['--threshold']
-    if detect_sigma == None:
-        detect_sigma = 10
     detect_sigma    = float(detect_sigma)
 
     sex_loc         = arguments['--sex']
     clip_sigma      = arguments['--dropsig']
 
     apass_dir = arguments['--refcat']
+    apass_dir = apass_dir + '/'
 
     if verbose:
         print arguments
         print_verbose_string( "Maximum permissible positon error is: %f deg" % maximum_error )
 
+
 # Create SExtractor catalog.
 
-    if re.search('.fits$', catalog):
+    if re.search('.fits$', inputfits):
         # Need to run SExtractor to generate the catalog
-        if band == None:
-            hdulist = fits.open(catalog)
-            hdu = hdulist[0]
-            hdulist.close()
-
-            if 'FILTNAM' not in hdu.header.keys():
-                if hdu.header['SERIALNO'] in ['83F010687','83F010783','83F010820','83F010827']:
-                    band = 'SloanG'
-                elif hdu.header['SERIALNO'] in ['83F010692','83F010730','83F010784','83F010826']:
-                    band = 'SloanR'
-            else:
-                band = hdu.header['FILTNAM']
-
-            if re.search('SloanG',band):
-                band = 'g-band'
-            elif re.search('SloanR',band):
-                band = 'r-band'
-            else:
-                raise FilterError("Filter unknown. Specify a filter using the -f keyword.")
-            if verbose:
-                print_verbose_string( "Filter determined from header: %s" % band )
-        elif re.search('SloanG',band):
-            band = 'g-band'
-        elif re.search('^g',band):
-            band = 'g-band'
-        elif re.search('SloanR',band):
-            band = 'r-band'
-        elif re.search('^r',band):
-            band = 'r-band'
-        else:
-            raise FilterError("Filter unknown. Specify a filter using the -f keyword. Known filters: g, r.")
-
-        cat = create_catalog(catalog,detect_thresh=detect_sigma)
+        band = determine_filter(inputfits,band)
+        cat = create_catalog(inputfits,detect_thresh=detect_sigma)
 
     #Load catalog data 
     #(number, flux_auto, fluxerr_auto, fluxerr_aper, x_image, y_image, flux_radius, flags, class_star)
-    sexdata = ascii.read(cat) 
-    number = sexdata['NUMBER']
-    flux_auto = sexdata['FLUX_AUTO']
-    fluxerr_auto = sexdata['FLUXERR_AUTO']
-    flux_aper = sexdata['FLUX_APER']
-    fluxerr_aper = sexdata['FLUXERR_APER']
-    x_image = sexdata['X_IMAGE']
-    y_image = sexdata['Y_IMAGE']
-    x_world = sexdata['X_WORLD']
-    y_world = sexdata['Y_WORLD']
-    flux_radius = sexdata['FLUX_RADIUS']
-    flags = sexdata['FLAGS']
-    class_star = sexdata['CLASS_STAR']
-    fwhm_image = sexdata['FWHM_IMAGE']
-    ellip      = sexdata['ELLIPTICITY']
-    theta_image= sexdata['THETA_IMAGE']
+    sexdata     = ascii.read(cat) 
+    number      = sexdata['NUMBER']
+    flux_auto   = sexdata['FLUX_AUTO']
+    fluxerr_auto= sexdata['FLUXERR_AUTO']
+    x_image     = sexdata['X_IMAGE']
+    y_image     = sexdata['Y_IMAGE']
+    x_world     = sexdata['X_WORLD']
+    y_world     = sexdata['Y_WORLD']
+    fwhm_image  = sexdata['FWHM_IMAGE']
+    ellip       = sexdata['ELLIPTICITY']
+    theta_image = sexdata['THETA_IMAGE']
 
 # Load AAVSO APASS catalog (name,ra,dec,g,r)
-    
+
     # Determine the minimum and maximum image positions
     min_x_image = min(x_image)
     max_x_image = max(x_image)
@@ -517,17 +540,13 @@ if __name__ == "__main__":
     max_y_image = max(y_image)
     x_centre = min_x_image + (max_x_image - min_x_image)/2.0
     y_centre = min_y_image + (max_y_image - min_y_image)/2.0
-
+    
     # Determine the declination range spanned by the data
     # Plus a little: the same cached file is used for dithered images
     min_ra = min(x_world)-1.1
     max_ra = max(x_world)+1.1
     min_dec = min(y_world)-1.1
     max_dec = max(y_world)+1.1
-    racf = min_ra + (max_ra-min_ra)/2.
-    deccf = min_dec + (max_dec-min_dec)/2.
-    x_center = min_x_image + (max_x_image - min_x_image)/2.0
-    y_center = min_y_image + (max_y_image - min_y_image)/2.0
     if verbose:
         print_verbose_string( "Min right ascension: %f" % min_ra ) 
         print_verbose_string( "Max right ascension: %f" % max_ra ) 
@@ -540,31 +559,23 @@ if __name__ == "__main__":
         if verbose:
             print_verbose_string( "Loading cached catalog data" )
     else:
-        #apass_array = APASScheck(apass_dir,min_ra,max_ra,min_dec,max_dec,racf,deccf,fulloutput=True)
-        #ra = apass_array[:,0]
-        #dec = apass_array[:,2]
-        #g = apass_array[:,9]
-        #r = apass_array[:,11]
-        #gerr = apass_array[:,10]
-        #rerr = apass_array[:,12]
         # Load the APASS file which corresponds to the minimum declination in the field of view
         apass_file = SelectAPASSFile( min_dec, apass_dir)
-        print apass_file
         (name,ra,dec,g,r,gerr,rerr) = LoadAPASSFile( apass_file, min_ra, max_ra, verbose=verbose )
 
         # If the file for the maximum declination is different from the file for the minimum declination then
         # load that one too and augment the arrays accordingly
         apass_file_extra = SelectAPASSFile( max_dec , apass_dir)
 
-        #if not (apass_file == apass_file_extra):
-        (name_extra,ra_extra,dec_extra,g_extra,r_extra,gerr_extra,rerr_extra) = LoadAPASSFile(apass_file_extra, min_ra, max_ra, verbose=verbose )
-        name = numpy.concatenate( (name, name_extra) )
-        ra = numpy.concatenate( (ra, ra_extra) )
-        dec = numpy.concatenate( (dec, dec_extra) )
-        g = numpy.concatenate( (g, g_extra) )
-        r = numpy.concatenate( (r, r_extra) )
-        gerr = numpy.concatenate( (gerr, gerr_extra) )
-        rerr = numpy.concatenate( (rerr, rerr_extra) )
+        if not (apass_file == apass_file_extra):
+            (name_extra,ra_extra,dec_extra,g_extra,r_extra,gerr_extra,rerr_extra) = LoadAPASSFile(apass_file_extra, min_ra, max_ra, verbose=verbose )
+            name= numpy.concatenate( (name, name_extra) )
+            ra  = numpy.concatenate( (ra, ra_extra) )
+            dec = numpy.concatenate( (dec, dec_extra) )
+            g   = numpy.concatenate( (g, g_extra) )
+            r   = numpy.concatenate( (r, r_extra) )
+            gerr= numpy.concatenate( (gerr, gerr_extra) )
+            rerr= numpy.concatenate( (rerr, rerr_extra) )
         if cache:
             numpy.savetxt('apass_cache.dat',(name,ra,dec,g,r,gerr,rerr))
     
@@ -590,24 +601,26 @@ if __name__ == "__main__":
 # Match Dragonfly SExtractor catalog sources with those in APASS.
 
     # Build the KDTree
-    DragonflyRADec = [x_world,y_world]
-    DragonflyRADec = numpy.array(numpy.transpose(DragonflyRADec))
-    AAVSORADec = [ra,dec]
-    AAVSORADec = numpy.array(numpy.transpose(AAVSORADec))
+    DragonflyRADec  = [x_world,y_world]
+    DragonflyRADec  = numpy.array(numpy.transpose(DragonflyRADec))
+    AAVSORADec      = [ra,dec]
+    AAVSORADec      = numpy.array(numpy.transpose(AAVSORADec))
 
-    AAVSOTree = spatial.KDTree(AAVSORADec)
-    nn = AAVSOTree.query(DragonflyRADec)
-    dist = numpy.array(nn[0])
-    index = numpy.array(nn[1])
+    AAVSOTree   = spatial.KDTree(AAVSORADec)
+    nn          = AAVSOTree.query(DragonflyRADec)
+    dist         = numpy.array(nn[0])
+    index       = numpy.array(nn[1])
 
     # Extract catalog entries in APASS catalog that correspond to Dragonfly catalog sources
-    ra_matched   = numpy.array(ra)[index]
-    dec_matched  = numpy.array(dec)[index]
-    catalog_mag_matched = numpy.array(catalog_mag)[index] 
+    ra_matched              = numpy.array(ra)[index]
+    dec_matched             = numpy.array(dec)[index]
+    catalog_mag_matched     = numpy.array(catalog_mag)[index] 
     catalog_mag_err_matched = numpy.array(catalog_mag_err)[index]  
-    catalog_gr_matched  = numpy.array(g - r)[index]
+    catalog_gr_matched      = numpy.array(g - r)[index]
     catalog_g_matched       = numpy.array(g)[index]
     catalog_r_matched       = numpy.array(r)[index]
+    catalog_g_err_matched   = numpy.array(gerr)[index]
+    catalog_r_err_matched   = numpy.array(rerr)[index]
 
 # Remove certain sources from analysis to make trimmed catalog list
 
@@ -616,20 +629,19 @@ if __name__ == "__main__":
     # If the catalog magnitude is unknown it gets a value of 99, weed those out
     # Don't keep Dragonfly stars that have negative flux
     condition = numpy.array(    (dist < maximum_error) &
-                            (x_image > xmin) & (x_image < xmax) & (y_image > ymin) & (y_image < ymax) &
-                            (catalog_mag_matched > magmin) & (catalog_mag_matched < 50) & (flux_auto > 0) &
+                            (catalog_mag_matched > magmin) & (catalog_mag_matched < magmax) & (flux_auto > 0) &
                             (catalog_gr_matched > -5) & (catalog_gr_matched < 5) &
                             (fwhm_image < 5)
                         )
-    # Extract Dragonfly and APASS catalog entries that fit condition
+
+# Extract Dragonfly and APASS catalog entries that fit condition
     # Dragonfly: 
     # (number, flux_auto, fluxerr_auto, fluxerr_aper, x_image, y_image, flux_radius, flags, class_star)
     # APASS: (name,ra,dec; catalog_mag)
     ii = numpy.array(numpy.where(condition)[0]) 
     # _c means matched & trimmed: APASS and Dragonfly matched AND retains only subset of good stars
-    flux_auto_c    = numpy.array(flux_auto[ii])
-    fluxerr_auto_c = numpy.array(fluxerr_auto[ii])
-    flux_aper_c     = numpy.array(flux_aper[ii])
+    flux_auto_c     = numpy.array(flux_auto[ii])
+    fluxerr_auto_c  = numpy.array(fluxerr_auto[ii])
     x_image_c       = numpy.array(x_image[ii])
     y_image_c       = numpy.array(y_image[ii])
     fwhm_image_c    = numpy.array(fwhm_image[ii])
@@ -637,108 +649,228 @@ if __name__ == "__main__":
     theta_image_c   = numpy.array(theta_image[ii])
 
     # Turn Dragonfly catalog flux into magnitude
-    #mag_aper_c  = -2.5*numpy.log10(flux_aper_c)
     mag_auto_c  = -2.5*numpy.log10(flux_auto_c)   
 
     # Calculate radius of source from centre of image
     rad_c       = numpy.sqrt( (x_image_c - x_centre)**2 + (y_image_c - y_centre)**2 )
 
     # Grab the right APASS catalog information
-    catalog_mag_c   = numpy.array(catalog_mag_matched[ii])
-    catalog_gr_c    = numpy.array(catalog_gr_matched[ii])
-    catalog_mag_err_c = numpy.array(catalog_mag_err_matched[ii])
-    catalog_g_c    = numpy.array(catalog_g_matched[ii])
-    catalog_r_c    = numpy.array(catalog_r_matched[ii])
+    catalog_mag_c       = numpy.array(catalog_mag_matched[ii])
+    catalog_gr_c        = numpy.array(catalog_gr_matched[ii])
+    catalog_mag_err_c   = numpy.array(catalog_mag_err_matched[ii])
+    catalog_g_c         = numpy.array(catalog_g_matched[ii])
+    catalog_r_c         = numpy.array(catalog_r_matched[ii])
+    catalog_g_err_c     = numpy.array(catalog_g_err_matched[ii])
+    catalog_r_err_c     = numpy.array(catalog_r_err_matched[ii])
 
 # Sigma clip using simple zeropoints before sending into fitting for various affects
 
-    #zp_c        = catalog_mag_c - mag_aper_c
     zp_c        = catalog_mag_c - mag_auto_c
     clip_sigma  = float(clip_sigma)
     clipped_zp  = sigma_clip(zp_c, sig=clip_sigma, iters = 5)
     outliers    = clipped_zp.mask
-    clipped_zp1  = clipped_zp[~outliers].data
+    clipped_zp1 = clipped_zp[~outliers].data
 
-    clipped_flux_auto      = numpy.ma.masked_array(flux_auto_c,mask=outliers)[~outliers].data
-    clipped_fluxerr_auto   = numpy.ma.masked_array(fluxerr_auto_c,mask=outliers)[~outliers].data
-    clipped_flux_aper       = numpy.ma.masked_array(flux_aper_c,mask=outliers)[~outliers].data
+    clipped_flux_auto       = numpy.ma.masked_array(flux_auto_c,mask=outliers)[~outliers].data
+    clipped_fluxerr_auto    = numpy.ma.masked_array(fluxerr_auto_c,mask=outliers)[~outliers].data
     clipped_x_image         = numpy.ma.masked_array(x_image_c,mask=outliers)[~outliers].data
     clipped_y_image         = numpy.ma.masked_array(y_image_c,mask=outliers)[~outliers].data
     clipped_fwhm_image      = numpy.ma.masked_array(fwhm_image_c,mask=outliers)[~outliers].data
     clipped_ellip           = numpy.ma.masked_array(ellip_c,mask=outliers)[~outliers].data
     clipped_theta_image     = numpy.ma.masked_array(theta_image_c,mask=outliers)[~outliers].data
-    clipped_mag_auto      = numpy.ma.masked_array(mag_auto_c,mask=outliers)[~outliers].data
+    clipped_mag_auto        = numpy.ma.masked_array(mag_auto_c,mask=outliers)[~outliers].data
 
-    clipped_rad           = numpy.ma.masked_array(rad_c,mask=outliers)[~outliers].data
+    clipped_rad             = numpy.ma.masked_array(rad_c,mask=outliers)[~outliers].data
 
     clipped_catalog_mag     = numpy.ma.masked_array(catalog_mag_c,mask=outliers)[~outliers].data
     clipped_catalog_gr      = numpy.ma.masked_array(catalog_gr_c,mask=outliers)[~outliers].data
     clipped_catalog_mag_err = numpy.ma.masked_array(catalog_mag_err_c,mask=outliers)[~outliers].data
-    clipped_catalog_g      = numpy.ma.masked_array(catalog_g_c,mask=outliers)[~outliers].data
-    clipped_catalog_r      = numpy.ma.masked_array(catalog_r_c,mask=outliers)[~outliers].data
+    clipped_catalog_g       = numpy.ma.masked_array(catalog_g_c,mask=outliers)[~outliers].data
+    clipped_catalog_r       = numpy.ma.masked_array(catalog_r_c,mask=outliers)[~outliers].data
+    clipped_catalog_g_err   = numpy.ma.masked_array(catalog_g_err_c,mask=outliers)[~outliers].data
+    clipped_catalog_r_err   = numpy.ma.masked_array(catalog_r_err_c,mask=outliers)[~outliers].data
 
 
-# Zeropoints and residues before doing any fitting.
-
-    m0_mADU = clipped_catalog_mag-clipped_mag_auto #same as clipped_zp1    
-    z01          = clipped_zp1.mean()
-    z0_err1      = clipped_zp1.std()
-    z0_var1      = z0_err1**2
-    clipped_res1    = clipped_zp1 - z01
+# Zeropoints and residues before doing any fitting, but after sigma clipping.
+   
+    z01         = clipped_zp1.mean()
+    z0_err1     = clipped_zp1.std()
+    z0_var1     = z0_err1**2
+    res1        = clipped_zp1 - z01
+    if verbose:
+        print '(After sigma clipping) Res1 average is: ' + str(res1.mean())
 
     # Measure dispersion in values
-    z0MAD1       = numpy.median(   numpy.absolute(clipped_zp1 - numpy.median(clipped_zp1))    )
-    q75, q25 = numpy.percentile(clipped_zp1, [75 ,25])
-    z0IQR1        = q75-q25
+    z0MAD1      = numpy.median(   numpy.absolute(clipped_zp1 - numpy.median(clipped_zp1))    )
+    q75, q25    = numpy.percentile(clipped_zp1, [75 ,25])
+    z0IQR1      = q75-q25
 
-# Fit colour term and remove 
+
+# Fit colour term and remove (before fitting plane and radial photometric effects)
 
     if correctcolour:
-        clipped_catalog_flux_err = 10**(clipped_catalog_mag_err/-2.5)
-        clipped_fluxerr_auto = clipped_fluxerr_auto
-        clipped_fluxerr_total = numpy.sqrt(clipped_catalog_flux_err**2 + clipped_fluxerr_auto**2)
+        # fit accounting for errors in y (catalog mag + SExtractor error)
+        clipped_catalog_flux_err= 10**(clipped_catalog_mag_err/-2.5)
+        clipped_fluxerr_auto    = clipped_fluxerr_auto
+        clipped_fluxerr_total   = numpy.sqrt(clipped_catalog_flux_err**2 + clipped_fluxerr_auto**2)
         y_sig = numpy.abs(-2.5*numpy.log10(clipped_fluxerr_total))
-        (z02,z0_var2,k2,k_var2,clipped_res2,res2_var,Rsq2)=curve_fit_wrapper(m0_mADU,clipped_catalog_gr,y_sig)
-        m0_mADU_kC = m0_mADU - k2*clipped_catalog_gr
-        clipped_zp2 = z02 + clipped_res2
+        (b2_1,b2_var_1,k2_1,k2_var_1,res2_1,res2_var_1,Rsq2_1)=curve_fit_wrapper(res1,clipped_catalog_gr,y_sig)
 
+        # fit account for errors in x (catalog colour)
+        clipped_catalog_g_err   = 10**(clipped_catalog_g_err/-2.5)
+        clipped_catalog_r_err   = 10**(clipped_catalog_r_err/-2.5)
+        clipped_catalog_gr_err  = numpy.sqrt(clipped_catalog_flux_err**2 + clipped_fluxerr_auto**2)
+        y_sig = numpy.abs(-2.5*numpy.log10(clipped_catalog_gr_err))
+        (b,b_var,m,m_var,res2_2,res2_var_2,Rsq2_2)=curve_fit_wrapper(clipped_catalog_gr,res1,y_sig)
+        k2_2        = 1.0/m
+        k2_var_2    = m_var
+        b2_2        = b/m
+        b2_var_2    = m_var + b_var
+        
+        # take average of two fits
+        b2          = (b2_1+b2_2)/2.0
+        k2          = (k2_1+k2_2)/2.0
+        b2_var      = b2_var_1 + b2_var_2
+        k2_var      = k2_var_1 + k2_var_2
+        clipped_zp2 = clipped_zp1 - (k2*clipped_catalog_gr + b2)
+        z02         = clipped_zp2.mean()
+        z0_err2     = clipped_zp2.std()
+        z0_var2     = z0_err2**2
+        res2        = clipped_zp2 - z02
+        Rsq2        = (Rsq2_1 + Rsq2_2)
+        # Check
+        res2check   = res1 - (k2*clipped_catalog_gr + b2) 
+        
         # Measure dispersion in values
-        z0MAD2       = numpy.median(   numpy.absolute(clipped_zp2 - numpy.median(clipped_zp2))    )
-        q75, q25 = numpy.percentile(clipped_zp2, [75 ,25])
-        z0IQR2        = q75-q25
+        z0MAD2      = numpy.median(   numpy.absolute(clipped_zp2 - numpy.median(clipped_zp2))    )
+        q75, q25    = numpy.percentile(clipped_zp2, [75 ,25])
+        z0IQR2      = q75-q25
+
+        if verbose:
+            print '(After colour correction) Res2 average is: ' + str(res2.mean())
+
 
     else: #skip colour term calculations
-        clipped_res2 = clipped_res1
-        clipped_zp2  = clipped_zp1
-
+        z02         = z01
+        res2        = res1
+        clipped_zp2 = clipped_zp1
 
 # Fit residues with surface and divide it out
-    print len(clipped_x_image),len(clipped_y_image),len(clipped_res2)
-    p_res = surffit(clipped_x_image,clipped_y_image,clipped_res2, deg=1)
-    (naxis1,naxis2) = getimsize(catalog)
-    x = numpy.array(map(float,range(naxis1)))
-    y = numpy.array(map(float,range(naxis2)))
-    xv, yv = numpy.meshgrid(x, y)
-    model_res_mag = p_res(xv,yv)
-    model_res_factor = 10**(model_res_mag/(-2.5))
+    if correctplane:
 
-    # save new image
-    new_image=save_image(catalog,model_res_factor,saveim_dir,suffix='pcapass',savemap=True)
+        # Calculate z errors (errors in APASS, SExtractor, colour fit)
+        clipped_catalog_flux_err= 10**(clipped_catalog_mag_err/-2.5)
+        clipped_fluxerr_auto    = clipped_fluxerr_auto
+        clipped_res2_flux_err   =   10**(res2/-2.5)
+        error_total = numpy.sqrt(clipped_catalog_flux_err**2+clipped_fluxerr_auto**2+clipped_res2_flux_err**2)
+        z_sig       = numpy.abs(-2.5*numpy.log10(error_total))
 
-# Calculate new zeropoint and scatter
-    
-    clipped_zp3 = clipped_zp2 - p_res(clipped_x_image,clipped_y_image)
-    z03         = clipped_zp3.mean()
-    z0_err3      = clipped_zp3.std()
-    z0_var3      = z0_err3**2
-    clipped_res3    = clipped_zp3 - z03
+        # Calculate fit
+        p_res           = surffit_plane(clipped_x_image,clipped_y_image,res2,z_sig,deg=1)
+        (naxis1,naxis2) = getimsize(inputfits)
+        x               = numpy.array(map(float,range(naxis1)))
+        y               = numpy.array(map(float,range(naxis2)))
+        xv, yv          = numpy.meshgrid(x, y)
+        model_res_mag   = p_res(xv,yv)
+        model_res_factor= 10**(model_res_mag/(-2.5))
 
-    # Measure dispersion in values
-    z0MAD3       = numpy.median(   numpy.absolute(clipped_zp3 - numpy.median(clipped_zp3))    )
-    q75, q25 = numpy.percentile(clipped_zp3, [75 ,25])
-    z0IQR3        = q75-q25
+        # save new image
+        new_image = save_image(inputfits,model_res_factor,saveim_dir,inspect_dir,suffix='pcp')
+
+        # Calculate new zeropoint and scatter
+        clipped_zp3 = clipped_zp2 - p_res(clipped_x_image,clipped_y_image)
+        z03         = clipped_zp3.mean()
+        z0_err3     = clipped_zp3.std()
+        z0_var3     = z0_err3**2
+        res3        = clipped_zp3 - z03
+
+        # Measure dispersion in values
+        z0MAD3      = numpy.median(   numpy.absolute(clipped_zp3 - numpy.median(clipped_zp3))    )
+        q75, q25    = numpy.percentile(clipped_zp3, [75 ,25])
+        z0IQR3      = q75-q25
+        
+        if verbose:
+            print '(After fitting a plane to photometry) Res3 average is: ' + str(res3.mean())
+
+    else: #skip fitting of plane
+        z03         = z02
+        res3        = res2
+        clipped_zp3 = clipped_zp2
+        new_image   = inputfits
 
 # Fit radial surface to photometry residues and divide it out
+
+    if correctradial:
+
+        # Calculate z errors (errors in APASS, SExtractor, colour fit, use same as tilted plane fit)
+        clipped_catalog_flux_err= 10**(clipped_catalog_mag_err/-2.5)
+        clipped_fluxerr_auto    = clipped_fluxerr_auto
+        clipped_res2_flux_err   = 10**(res2/-2.5)
+        error_total = numpy.sqrt(clipped_catalog_flux_err**2+clipped_fluxerr_auto**2+clipped_res2_flux_err**2)
+        z_sig       = numpy.abs(-2.5*numpy.log10(error_total))
+
+        # Calculate fit
+        xy      = [clipped_x_image,clipped_y_image]
+        (c0, c1, xc, yc, c0_var, c1_var, xc_var, yc_var, res4, res4_var, Rsq4) = radial_fit_wrapper(res3,xy,z_sig,magfunc_radial)
+        x       = numpy.array(map(float,range(naxis1)))
+        y       = numpy.array(map(float,range(naxis2)))
+        xv, yv  = numpy.meshgrid(x, y)
+        g_xy    = magfunc_radial(xy,c0,c1,xc,yc)
+        model_res_mag       = c0 + c1*( numpy.sqrt(  (xv-xc)**2 + (yv-yc)**2 )  )
+        model_res_factor    = 10**(model_res_mag/(-2.5))
+        
+        # save new image
+        if correctplane:
+            planecorrectedimage=new_image
+        new_image=save_image(new_image,model_res_factor,saveim_dir,inspect_dir,suffix='pcr')
+
+        # if a tilted plane was first fitted to photometry of image, divided out and saved,
+        # then move that image to inspection directory/ delete. 
+        if correctplane:
+            if inspect_dir:
+                subprocess.call("mv {image} {inspect_dir}".format(image=planecorrectedimage,inspect_dir=inspect_dir),shell=True)
+            else:
+                subprocess.call("rm {image}".format(image=planecorrectedimage),shell=True)
+
+        # Calculate new zeropoint and scatter
+        clipped_zp4 = clipped_zp3 - magfunc_radial(xy, c0, c1, xc, yc)
+        z04         = clipped_zp4.mean()
+        z0_err4     = clipped_zp4.std()
+        z0_var4     = z0_err4**2
+        res4        = clipped_zp4 - z04
+
+        # Measure dispersion in values
+        z0MAD4      = numpy.median(   numpy.absolute(clipped_zp4 - numpy.median(clipped_zp4))    )
+        q75, q25    = numpy.percentile(clipped_zp4, [75 ,25])
+        z0IQR4      = q75-q25
+
+        if verbose:
+            print '(After fitting radial terms) Res4 average is: ' + str(res4.mean())
+
+    else: #skip fitting of radial function
+        z04         = z03
+        res4        = res3
+        clipped_zp4 = clipped_zp3
+
+# Undo colour fit to calculate zp if color correction was applied.
+
+    if correctcolour:
+        clipped_zp_final= clipped_zp4 + (k2*clipped_catalog_gr + b2)
+
+    else:
+        clipped_zp_final= clipped_zp4 
+
+    z0_final        = clipped_zp_final.mean()
+    z0_err_final    = clipped_zp_final.std()
+    z0_var_final    = z0_err_final**2
+    res_final       = clipped_zp_final - z0_final
+    z0MAD_final     = numpy.median(   numpy.absolute(clipped_zp_final - numpy.median(clipped_zp_final))    )
+    q75, q25        = numpy.percentile(clipped_zp_final, [75 ,25])
+    z0IQR_final     = q75-q25
+
+    if verbose:
+        print '(Final) Residue average is: ' + str(res_final.mean())
+
 
 # If "--update" (and a .fits was provided), add the information as keywords to the image
 
@@ -746,23 +878,15 @@ if __name__ == "__main__":
         print new_image + ' header will be updated with addition parameters'
         # If update and fits file provided, do the updating!
         data, header = fits.getdata(new_image, header=True)
-        header['ZP1'] = (z01, 'Dragonfly Pipeline')
-        header['ZPRMS1'] = (z0_var1, 'Dragonfly Pipeline')
-        header['ZPMAD1'] = (z0MAD1, 'Dragonfly Pipeline')
-        header['ZPIQR1'] = (z0IQR1, 'Dragonfly Pipeline')
-        if correctcolour:
-            header['ZP2'] = (z02, 'Dragonfly Pipeline')
-            header['Z0FITRMS']=(z0_var2, 'z0_var2, Dragonfly Pipeline')
-            header['ZPRMS2'] = (res2_var, 'res2_var Dragonfly Pipeline')
-            header['ZPMAD2'] = (z0MAD2, 'Dragonfly Pipeline')
-            header['ZPIQR2'] = (z0IQR2, 'Dragonfly Pipeline')
-            header['KTERM']=(k2, 'colour term k*(g-r), Dragonfly Pipeline')
-            header['KTERMVAR']=(k_var2, 'Dragonfly Pipeline')
-            header['RSQ2']=(Rsq2, 'Dragonfly Pipeline')
-        header['ZP3'] = (z03, 'Dragonfly Pipeline')
-        header['ZPRMS3'] = (z0_var3, 'sqrt(z0 var) Dragonfly Pipeline')
-        header['ZPMAD3'] = (z0MAD3, 'Dragonfly Pipeline')
-        header['ZPIQR3'] = (z0IQR3, 'Dragonfly Pipeline')
+        header['comment'] = 'Below header information added by Dragonfly Pipeline using create_photometriclights'
+        header['comment'] = 'Model is: m0-mADU = ZP + h(C) + f(x,y) + g(x,y) + res' #ZP=z0
+        header['comment'] = 'h(c)   = b2+KTERM*C                              ; colour term' #KTERM=k2
+        header['comment'] = 'f(x,y) = d0+d1*x+d2*y                            ; tilted plane'
+        header['comment'] = 'g(x,y) = C0 + C1*sqrt( (x-XCENT)^2+(y-YCENT)^2 ) ; radial fit' #XCENT, YCENT = xc,yc
+        header['ZP'] = (z0_final, 'Dragonfly Pipeline')
+        header['ZPVAR'] = (z0_var_final, 'ragonfly Pipeline')
+        header['ZPMAD'] = (z0MAD_final, 'Dragonfly Pipeline')
+        header['ZPIQR'] = (z0IQR_final, 'Dragonfly Pipeline')
         header['SIGCLIP'] = (clip_sigma, 'Sources with simple zeropoints within this number of sigmas is included in the final zeropoint calculation, Dragonfly Pipeline')
         header['ZPNGOOD'] = len(clipped_zp)
         header['ZPNREJ'] = ( len(zp_c) - len(clipped_zp))
@@ -774,22 +898,55 @@ if __name__ == "__main__":
         header['THRMS'] = (sexdata['THETA_IMAGE']).std()
         header['SKYLVL'] = (sexdata['BACKGROUND']).mean()
         header['SKYRMS'] = (sexdata['BACKGROUND']).std()    
-        header['SWARPSCL'] = (10**(z03/2.5)) / (10**(27/2.5))
+        header['SWARPSCL'] = (10**(z0_final/2.5)) / (10**(27/2.5))
         if ((sexdata['BACKGROUND']).mean() > 0.0):
-            header['SKYSB'] = z03 - 2.5*math.log10((sexdata['BACKGROUND']).mean()) + 5.0*math.log10(2.85)
+            header['SKYSB'] = z0_final - 2.5*math.log10((sexdata['BACKGROUND']).mean()) + 5.0*math.log10(2.85)
+        header['comment'] = 'Dragonfly Pipeline: sources with ZP outside of '+str(clip_sigma)+' have been removed to calculate below'
+        header['ZP1'] = (z01, 'Dragonfly Pipeline')
+        header['ZPVAR1'] = (z0_var1, 'Dragonfly Pipeline')
+        header['ZPMAD1'] = (z0MAD1, 'Dragonfly Pipeline')
+        header['ZPIQR1'] = (z0IQR1, 'Dragonfly Pipeline')
+        if correctcolour:
+            header['comment'] = 'Dragonfly Pipeline: color correction done before correcting for photometry across FOV'
+            header['ZP2'] = (z02, 'Dragonfly Pipeline')
+            header['ZPVAR2'] = (z0_var2, 'z0_var2 Dragonfly Pipeline')
+            header['ZPMAD2'] = (z0MAD2, 'Dragonfly Pipeline')
+            header['ZPIQR2'] = (z0IQR2, 'Dragonfly Pipeline')
+            header['KTERM']=(k2, 'colour term k*(g-r), Dragonfly Pipeline')
+            header['KTERMVAR']=(k2_var, 'Dragonfly Pipeline')
+            header['RSQ2']=(Rsq2, 'Dragonfly Pipeline')
+        if correctplane:
+            header['comment'] = 'Dragonfly Pipeline: Corrected for photometry across FOV by fitting tilted plane'
+            header['ZP3'] = (z03, 'Dragonfly Pipeline')
+            header['ZPVAR3'] = (z0_var3, 'z0_var3 Dragonfly Pipeline')
+            header['ZPMAD3'] = (z0MAD3, 'Dragonfly Pipeline')
+            header['ZPIQR3'] = (z0IQR3, 'Dragonfly Pipeline')
+        if correctradial:
+            header['comment'] = 'Dragonfly Pipeline: Corrected for photometry across FOV by fitting a radial function'
+            header['ZP4'] = (z04, 'Dragonfly Pipeline')
+            header['ZPVAR4']=(z0_var4, 'z0_var4, Dragonfly Pipeline')
+            header['ZPMAD4'] = (z0MAD4, 'Dragonfly Pipeline')
+            header['ZPIQR4'] = (z0IQR4, 'Dragonfly Pipeline')
+            header['XCENT']=(xc, 'Dragonfly Pipeline')
+            header['YCENT']=(yc, 'Dragonfly Pipeline')
+            header['XCENTVAR']=(xc_var, 'Dragonfly Pipeline')
+            header['YCENTVAR']=(yc_var, 'Dragonfly Pipeline')
+            header['C0']=(c0, 'Dragonfly Pipeline')
+            header['C1']=(c1, 'Dragonfly Pipeline')
+            header['RSQ4']=(Rsq4, 'Dragonfly Pipeline')            
         fits.writeto(new_image,data,header,clobber=True) 
 
 # Optionally plot the results
-
-    if show_plot and correctcolour:
-        
-        print ' '
-        print 'plots will be made showing zeropoint distribution'
+    
+    if show_plot:
+        if verbose: 
+            print ' '
+            print 'plots will be made showing zeropoint distribution'
 
     # Figure out histogram limits
         final_minz = 1000;
         final_maxz = -1000;
-        for z in [clipped_zp1, clipped_zp2, clipped_zp3]:
+        for z in [clipped_zp1, clipped_zp2, clipped_zp3, clipped_zp4,clipped_zp_final]:
             minz = min(z)
             maxz = max(z)
             if minz < final_minz:
@@ -801,13 +958,17 @@ if __name__ == "__main__":
 
     # plot zeropoints (clipped) 
 
-        zp2plot = clipped_zp3
         cm = plt.cm.get_cmap('RdYlBu')
-        plt.figure(figsize=(22,24))
+        plt.figure(figsize=(48,18))
 
-        # m0-mADU or z0+kC+f(x,y)+g(f,y)+residue distribution across FOV
-        plt.subplot(4,3,1)
-        yy = clipped_res1
+        #Model is: m0-mADU = z0 + h(C) + f(x,y) + g(x,y) + res
+        #h(c)   = b2+k2*C                           ; colour term
+        #f(x,y) = d0+d1*x+d2*y                      ; tilted plane
+        #g(x,y) = c0 + c1*sqrt( (x-xc)^2+(y-yc)^2 ) ; radial fit
+
+        # m0-mADU-z0 or h(C)+f(x,y)+g(f,y)+residue distribution across FOV
+        plt.subplot(3,6,1)
+        yy = res1
         zmin = yy.mean() - 3*yy.std()
         zmax = yy.mean() + 3*yy.std()
         sc = plt.scatter(clipped_x_image, clipped_y_image, c=yy, vmin=zmin, vmax=zmax, s=30, cmap=cm)
@@ -816,40 +977,9 @@ if __name__ == "__main__":
         plt.xlabel('X_IMAGE')
         plt.ylabel('Y_IMAGE')
 
-        # histogram of z01 
-        plt.subplot(4,3,2)
-        n, bins, patches = P.hist(clipped_zp1, 20)
-        P.setp(patches, 'facecolor', 'g', 'alpha', 0.75)
-        P.xlim([final_minz, final_maxz])
-        r = max(clipped_zp1) - min(clipped_zp1)
-        r = ("%.3f" % r)
-        rms = clipped_zp1.std()
-        rms = ("%.5f" % rms)
-        plt.xlabel('z0+kC+f(x,y)+g(x,y)+residue; R: '+r+' std: '+rms)
-        plt.ylabel('N')
-
-        # Add title to this subplot as title of whole plot
-        filename = str(catalog)
-        filename = filename.split('/')[-1]
-        plt.title(  filename+ '; clipped zeropoints at sigma = ' +str(clip_sigma) + ' model: m0=m_ADU+z0+kC+f(x,y)+g(f,y)+res'  )
-
-        # magnitude vs zeropoint1 scatter plot
-        plt.subplot(4,3,3)
-        sc = plt.scatter(clipped_catalog_mag, clipped_zp1, c=clipped_rad, vmin=numpy.min(clipped_rad), vmax=numpy.max(clipped_rad), s=20, cmap=cm,alpha=0.4)
-        plt.colorbar(sc,label='Radius')
-        ymax = max(clipped_zp1) +0.1
-        ymin = min(clipped_zp1) -0.1
-        plt.axis( [min(clipped_catalog_mag),max(clipped_catalog_mag),ymin,ymax] )
-        plt.xlabel('mag')
-        plt.ylabel('z0+kC+f(x,y)+g(x,y)+residue')
-
-
-            
-
-
-        # m0-mADU-kC or z0+f(x,y)+g(f,y)+residue distribution across FOV
-        plt.subplot(4,3,4)
-        yy = clipped_res2
+        # m0-mADU-z0-h(C) or f(x,y)+g(f,y)+residue distribution across FOV
+        plt.subplot(3,6,2)
+        yy = res2
         zmin = yy.mean() - 3*yy.std()
         zmax = yy.mean() + 3*yy.std()
         sc = plt.scatter(clipped_x_image, clipped_y_image, c=yy, vmin=zmin, vmax=zmax, s=30, cmap=cm)
@@ -858,8 +988,60 @@ if __name__ == "__main__":
         plt.xlabel('X_IMAGE')
         plt.ylabel('Y_IMAGE')
 
+        # m0-mADU-z0-h(C)-f(x,y) or zg(f,y)+residue distribution across FOV
+        plt.subplot(3,6,3)
+        yy = res3
+        zmin = yy.mean() - 3*yy.std()
+        zmax = yy.mean() + 3*yy.std()
+        sc = plt.scatter(clipped_x_image, clipped_y_image, c=yy, vmin=zmin, vmax=zmax, s=30, cmap=cm)
+        plt.axis( [min(x_image),max(x_image),min(y_image),max(y_image)] )
+        plt.colorbar(sc,label='g(x,y)+residue')
+        plt.xlabel('X_IMAGE')
+        plt.ylabel('Y_IMAGE')
+        # Add title to this subplot as title of whole plot
+        filename = str(inputfits)
+        filename = filename.split('/')[-1]
+        plt.title(  filename+ '; clipped zeropoints at sigma = ' +str(clip_sigma) + ' model: m0=m_ADU+z0+kC+f(x,y)+g(f,y)+res'  )
+
+        # m0-mADU-z0-h(C)-f(x,y)-g(x,y) or residue distribution across FOV
+        plt.subplot(3,6,4)
+        yy = res4
+        zmin = yy.mean() - 3*yy.std()
+        zmax = yy.mean() + 3*yy.std()
+        sc = plt.scatter(clipped_x_image, clipped_y_image, c=yy, vmin=zmin, vmax=zmax, s=30, cmap=cm)
+        plt.axis( [min(x_image),max(x_image),min(y_image),max(y_image)] )
+        plt.colorbar(sc,label='residue')
+        plt.xlabel('X_IMAGE')
+        plt.ylabel('Y_IMAGE')
+
+        # m0-mADU-z0-f(x,y)-g(x,y) or residue+h(C) distribution across FOV
+        plt.subplot(3,6,5)
+        yy = res_final
+        zmin = yy.mean() - 3*yy.std()
+        zmax = yy.mean() + 3*yy.std()
+        sc = plt.scatter(clipped_x_image, clipped_y_image, c=yy, vmin=zmin, vmax=zmax, s=30, cmap=cm)
+        plt.axis( [min(x_image),max(x_image),min(y_image),max(y_image)] )
+        plt.colorbar(sc,label='residue')
+        plt.xlabel('X_IMAGE')
+        plt.ylabel('Y_IMAGE')
+
+
+
+
+        # histogram of z01 
+        plt.subplot(3,6,7)
+        n, bins, patches = P.hist(clipped_zp1, 20)
+        P.setp(patches, 'facecolor', 'g', 'alpha', 0.75)
+        P.xlim([final_minz, final_maxz])
+        r = max(clipped_zp1) - min(clipped_zp1)
+        r = ("%.3f" % r)
+        rms = clipped_zp1.std()
+        rms = ("%.5f" % rms)
+        plt.xlabel('z0+h(C)+f(x,y)+g(x,y)+residue; R: '+r+' std: '+rms)
+        plt.ylabel('N')
+
         # histogram of z02
-        plt.subplot(4,3,5)
+        plt.subplot(3,6,8)
         n, bins, patches = P.hist(clipped_zp2, 20)
         P.setp(patches, 'facecolor', 'g', 'alpha', 0.75)
         P.xlim([final_minz, final_maxz])
@@ -870,36 +1052,8 @@ if __name__ == "__main__":
         plt.xlabel('z0+f(x,y)+g(x,y)+residue; R: '+r+' std: '+rms)
         plt.ylabel('N')
 
-        # g-r colour vs zeropoint2 scatter plot AND fitted colour term line
-        plt.subplot(4,3,6)
-        xx = [min(clipped_catalog_gr),max(clipped_catalog_gr)]
-        yy = z02 + numpy.array(xx)*k2
-        plt.plot(xx,yy)
-        sc = plt.scatter(clipped_catalog_gr, clipped_zp1, c=y_sig, vmin=numpy.min(y_sig), vmax=numpy.max(y_sig), s=20, cmap=cm,alpha=0.4)
-        plt.colorbar(sc,label='error in m0-mAUD')
-        ymax = max(clipped_zp1) +0.1
-        ymin = min(clipped_zp1) -0.1
-        plt.axis( [min(clipped_catalog_gr),max(clipped_catalog_gr),ymin,ymax] )
-        plt.xlabel('g-r catalog mag')
-        plt.ylabel('z0+kC+f(x,y)+g(x,y)+residue')
-
-
-
-
-
-        # m0-mADU-kC-f(x,y) or z0+g(f,y)+residue distribution across FOV
-        plt.subplot(4,3,7)
-        yy = clipped_res3
-        zmin = yy.mean() - 3*yy.std()
-        zmax = yy.mean() + 3*yy.std()
-        sc = plt.scatter(clipped_x_image, clipped_y_image, c=yy, vmin=zmin, vmax=zmax, s=30, cmap=cm)
-        plt.axis( [min(x_image),max(x_image),min(y_image),max(y_image)] )
-        plt.colorbar(sc,label='g(x,y)+residue')
-        plt.xlabel('X_IMAGE')
-        plt.ylabel('Y_IMAGE')
-
         # histogram of z03
-        plt.subplot(4,3,8)
+        plt.subplot(3,6,9)
         n, bins, patches = P.hist(clipped_zp3, 20)
         P.setp(patches, 'facecolor', 'g', 'alpha', 0.75)
         P.xlim([final_minz, final_maxz])
@@ -910,112 +1064,139 @@ if __name__ == "__main__":
         plt.xlabel('z0+g(x,y)+residue; R: '+r+' std: '+rms)
         plt.ylabel('N')
 
-        # Fit to residue map
-        plt.subplot(4,3,9)
-        zmin = clipped_res3.mean() - 3*clipped_res3.std()
-        zmax = clipped_res3.mean() + 3*clipped_res3.std()
-        sc = plt.scatter(clipped_x_image, clipped_y_image, c=p_res(clipped_x_image,clipped_y_image), vmin=zmin, vmax=zmax, s=30, cmap=cm)
+        # histogram of z04
+        plt.subplot(3,6,10)
+        n, bins, patches = P.hist(clipped_zp4, 20)
+        P.setp(patches, 'facecolor', 'g', 'alpha', 0.75)
+        P.xlim([final_minz, final_maxz])
+        r = max(clipped_zp4) - min(clipped_zp4)
+        r = ("%.3f" % r)
+        rms = clipped_zp4.std()
+        rms = ("%.5f" % rms)
+        plt.xlabel('z0+residue; R: '+r+' std: '+rms)
+        plt.ylabel('N')
+
+        # histogram of z0_final
+        plt.subplot(3,6,11)
+        n, bins, patches = P.hist(clipped_zp_final, 20)
+        P.setp(patches, 'facecolor', 'g', 'alpha', 0.75)
+        P.xlim([final_minz, final_maxz])
+        r = max(clipped_zp_final) - min(clipped_zp_final)
+        r = ("%.3f" % r)
+        rms = clipped_zp_final.std()
+        rms = ("%.5f" % rms)
+        plt.xlabel('z0+residue+h(C); R: '+r+' std: '+rms)
+        plt.ylabel('N')
+
+
+
+
+        # magnitude vs zeropoint1 scatter plot
+        plt.subplot(3,6,13)
+        sc = plt.scatter(clipped_catalog_mag, clipped_zp1, c=clipped_rad, vmin=numpy.min(clipped_rad), vmax=numpy.max(clipped_rad), s=20, cmap=cm,alpha=0.4)
+        plt.colorbar(sc,label='Radius')
+        ymax = max(clipped_zp1) +0.1
+        ymin = min(clipped_zp1) -0.1
+        plt.axis( [min(clipped_catalog_mag),max(clipped_catalog_mag),ymin,ymax] )
+        plt.xlabel('mag')
+        plt.ylabel('z0+kC+f(x,y)+g(x,y)+residue')
+
+        # g-r colour vs zeropoint2 scatter plot AND fitted colour term line
+        plt.subplot(3,6,14)
+        if correctcolour:
+            xx = [min(clipped_catalog_gr),max(clipped_catalog_gr)]
+            yy = z02 + b2 + numpy.array(xx)*k2
+            plt.plot(xx,yy)
+        else:
+            clipped_catalog_flux_err= 10**(clipped_catalog_mag_err/-2.5)
+            clipped_fluxerr_auto    = clipped_fluxerr_auto
+            clipped_fluxerr_total   = numpy.sqrt(clipped_catalog_flux_err**2 + clipped_fluxerr_auto**2)
+            y_sig = numpy.abs(-2.5*numpy.log10(clipped_fluxerr_total))
+        sc = plt.scatter(clipped_catalog_gr, clipped_zp1, c=y_sig, vmin=numpy.min(y_sig), vmax=numpy.max(y_sig), s=20, cmap=cm,alpha=0.4)
+        plt.colorbar(sc,label='error in m0-mAUD')
+        ymax = max(clipped_zp1) +0.1
+        ymin = min(clipped_zp1) -0.1
+        plt.axis( [min(clipped_catalog_gr),max(clipped_catalog_gr),ymin,ymax] )
+        plt.xlabel('g-r catalog mag')
+        plt.ylabel('z0+kC+f(x,y)+g(x,y)+residue')
+
+        # Planar Fit to residue map
+        plt.subplot(3,6,15)
+        zmin = res3.mean() - 3*res3.std()
+        zmax = res3.mean() + 3*res3.std()
+        if correctplane:
+            colour = p_res(clipped_x_image,clipped_y_image)
+        else:
+            colour = res1*0.0
+        sc = plt.scatter(clipped_x_image, clipped_y_image, c=colour, vmin=zmin, vmax=zmax, s=30, cmap=cm)
         plt.axis( [min(x_image),max(x_image),min(y_image),max(y_image)] )
         plt.colorbar(sc,label='Fit to m0-mADU-kC')
         plt.xlabel('X_IMAGE')
         plt.ylabel('Y_IMAGE')
 
+        # Radial Fit to residue map
+        plt.subplot(3,6,16)
+        if correctradial:
+            yy = g_xy 
+        else:
+            yy = res1*0.0
+        zmin = yy.mean() - 3*yy.std()
+        zmax = yy.mean() + 3*yy.std()
+        sc = plt.scatter(clipped_x_image, clipped_y_image, c=yy, vmin=zmin, vmax=zmax, s=30, cmap=cm)
+        plt.axis( [min(x_image),max(x_image),min(y_image),max(y_image)] )
+        plt.colorbar(sc,label='Fit to m0-mADU-kC-f(x,y); take out z4')
+        plt.xlabel('X_IMAGE')
+        plt.ylabel('Y_IMAGE')
 
-
-
-
-        # if subplot(5,3) #10-12 inclusive is res4 map, z4 distribution, radius vs z3
+        #plt.subplot(3,6,17) is empty
 
 
   
-        z0=z03
-        res = clipped_res3
         # radius vs z0+residue 
-        plt.subplot(4,3,10)
+        plt.subplot(3,6,6)
         xx = [min(clipped_rad),max(clipped_rad)]
-        yy = [z0,z0] 
+        yy = [z0_final,z0_final] 
         plt.plot(xx,yy)
-        sc=plt.scatter(clipped_rad,z0+res,c=clipped_catalog_gr, vmin=numpy.min(clipped_catalog_gr), vmax=numpy.max(clipped_catalog_gr), s=20, cmap=cm,alpha=0.3)
-        ymax = max(z0+res) +0.06
-        ymin = min(z0+res) -0.06
+        # calculate theta (of source in FOV coordinate system)
+        clipped_xytheta = calc_theta(clipped_x_image, clipped_y_image, x_centre, y_centre)
+        # plot stuff
+        sc=plt.scatter(clipped_rad,z0_final+res_final,c=clipped_xytheta, vmin=numpy.min(clipped_xytheta), vmax=numpy.max(clipped_xytheta), s=20, cmap=cm,alpha=0.3)
+        ymax = max(z0_final+res_final) +0.06
+        ymin = min(z0_final+res_final) -0.06
         plt.axis( [min(clipped_rad),max(clipped_rad),ymin,ymax] )
-        plt.colorbar(sc,label='Colour')
+        plt.colorbar(sc,label='Theta (of source position)')
         plt.xlabel('Radius')
         plt.ylabel('z0+residue')
 
         # fwhm vs z0+residue
-        plt.subplot(4,3,11)
+        plt.subplot(3,6,12)
         xx = [min(clipped_fwhm_image),max(clipped_fwhm_image)]
-        yy = [z0,z0] 
+        yy = [z0_final,z0_final] 
         plt.plot(xx,yy)
-        sc=plt.scatter(clipped_fwhm_image,z0+res,c=clipped_rad, vmin=numpy.min(clipped_rad), vmax=numpy.max(clipped_rad), s=20, cmap=cm,alpha=0.3)
-        ymax = max(z0+res) +0.06
-        ymin = min(z0+res) -0.06
+        sc=plt.scatter(clipped_fwhm_image,z0_final+res_final,c=clipped_rad, vmin=numpy.min(clipped_rad), vmax=numpy.max(clipped_rad), s=20, cmap=cm,alpha=0.3)
+        ymax = max(z0_final+res_final) +0.06
+        ymin = min(z0_final+res_final) -0.06
         plt.axis( [min(clipped_fwhm_image),max(clipped_fwhm_image),ymin,ymax] )
         plt.colorbar(sc,label='Radius')
         plt.xlabel('FWHM')
         plt.ylabel('z0+residue')
 
         # ellipticity vs z0+residue
-        plt.subplot(4,3,12)
+        plt.subplot(3,6,18)
         xx = [min(clipped_ellip),max(clipped_ellip)]
-        yy = [z0,z0] 
+        yy = [z0_final,z0_final] 
         plt.plot(xx,yy)
-        sc=plt.scatter(clipped_ellip,z0+res,c=clipped_rad, vmin=numpy.min(clipped_rad), vmax=numpy.max(clipped_rad), s=20, cmap=cm,alpha=0.3)
-        ymax = max(z0+res) +0.06
-        ymin = min(z0+res) -0.06
+        sc=plt.scatter(clipped_ellip,z0_final+res_final,c=clipped_rad, vmin=numpy.min(clipped_rad), vmax=numpy.max(clipped_rad), s=20, cmap=cm,alpha=0.3)
+        ymax = max(z0_final+res_final) +0.06
+        ymin = min(z0_final+res_final) -0.06
         plt.axis( [min(clipped_ellip),max(clipped_ellip),ymin,ymax] )
         plt.colorbar(sc,label='Radius')
         plt.xlabel('Ellipticity')
         plt.ylabel('z0+residue')
 
-        ## theta vs z0+residue
-        #plt.subplot(3,4,12)
-        #xx = [min(clipped_theta_image),max(clipped_theta_image)]
-        #yy = [z02,z02] 
-        #plt.plot(xx,yy)
-        #sc=plt.scatter(clipped_theta_image,z02+clipped_z0_residues2,c=clipped_rad, vmin=numpy.min(clipped_rad), vmax=numpy.max(clipped_rad), s=20, cmap=cm,alpha=0.3)
-        #ymax = max(z02+clipped_z0_residues2) +0.06
-        #ymin = min(z02+clipped_z0_residues2) -0.06
-        #plt.axis( [min(clipped_theta_image),max(clipped_theta_image),ymin,ymax] )
-        #plt.colorbar(sc,label='Radius')
-        #plt.xlabel('Theta')
-        #plt.ylabel('z0+residue')
-
         # save plots
-        saveloc = str(catalog)
-        saveloc = saveloc.split('.')[0]+'_clipped_apass.png'
+        saveloc = str(inputfits)
+        saveloc = saveloc.split('.')[0]+'_apass.png'
         print 'saving second plot in: '+saveloc
         print ' '
         plt.savefig(saveloc)
-
-
-        # plot colour versus zeropoint with colourbar showing catalog brightness of star in g and r bands
-        plt.figure(figsize=(20,18))
-        cm = plt.cm.get_cmap('RdYlBu')
-
-        plt.subplot(2,1,1)
-        xx = [min(clipped_catalog_gr),max(clipped_catalog_gr)]
-        yy = z02 + numpy.array(xx)*k2
-        plt.plot(xx,yy)
-        sc = plt.scatter(clipped_catalog_gr, clipped_zp1, c=clipped_catalog_g, vmin=numpy.min(clipped_catalog_g), vmax=numpy.max(clipped_catalog_g), s=30, cmap=cm,alpha=0.5)
-        plt.colorbar(sc,label='APASS g magnitude')
-        plt.xlabel('g-r catalog mag')
-        plt.ylabel('z0+kC+f(x,y)+g(x,y)+residue')
-
-        plt.subplot(2,1,2)
-        xx = [min(clipped_catalog_gr),max(clipped_catalog_gr)]
-        yy = z02 + numpy.array(xx)*k2
-        plt.plot(xx,yy)
-        sc = plt.scatter(clipped_catalog_gr, clipped_zp1, c=clipped_catalog_r, vmin=numpy.min(clipped_catalog_r), vmax=numpy.max(clipped_catalog_r), s=30, cmap=cm,alpha=0.5)
-        plt.colorbar(sc,label='APASS r magnitude')
-        plt.xlabel('g-r catalog mag')
-        plt.ylabel('z0+kC+f(x,y)+g(x,y)+residue')
-
-        # save plots
-        saveloc = str(catalog)
-        saveloc = saveloc.split('.')[0]+'_colourapass.png'
-        print 'saving second plot in: '+saveloc
-        print ' '
-        plt.savefig(saveloc)
-

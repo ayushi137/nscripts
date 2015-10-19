@@ -1,6 +1,28 @@
 import os
 from numpy import *
 import subprocess
+import docopt
+
+"""
+scampswarp - creates config files for scamp and swarp and contains a 
+             a function to perform warp on image to improve astrometry
+Requires the following packages: os, numpy, subprocess, docopt
+Requires the following files: check_apassoverlap.py
+
+usage: scampswarp [-h]
+
+Options:
+    -h, --help              Show this screen
+    -v, --verbose           If True, print extra text
+
+"""
+
+catalogchecks = {}
+catalogchecks['APASS'] = 'check_apassoverlap.py'
+
+arguments = docopt.docopt(__doc__)
+
+VERBOSE = arguments['--verbose']
 
 sextractor_config = '''
     ANALYSIS_THRESH 1.5
@@ -93,26 +115,44 @@ default_nnw = """NNW
  1.00000e+00 
 """   
 
-def scampswarp(scampcat,image,imageout,interptype = 'LANCZOS3'):
-    subprocess.call("sex -c scamp.sex -CATALOG_NAME {0} -CATALOG_TYPE FITS_LDAC {1}".format(scampcat, image), shell=True)
-    scamp_command = "scamp -c default.scamp -ASTREF_CATALOG USNO-B1 -VERBOSE_TYPE FULL "
-    scamp_command = scamp_command + "-PROJECTION_TYPE TAN -SOLVE_PHOTOM N -MAGZERO_KEY ZP -PHOTINSTRU_KEY FILTNAM "
-    scamp_command = scamp_command + "-CHECKPLOT_DEV PDF -CHECKPLOT_NAME phot_zp -CHECKPLOT_TYPE PHOT_ZPCORR {0}"
-    subprocess.call(scamp_command.format(scampcat),shell=True)
-    print scamp_command.format(scampcat)
-    swarp_command = "swarp -c default.swarp -COPY_KEYWORDS TARGET,FILTNAM,SERIALNO,"
-    swarp_command = swarp_command + "ALTITUDE,AZIMUTH,ZP,ZPRMS,ZPNGOOD,ZPNREJ,FWHM,SSIGMA,NOBJ,AXRATIO,"
-    swarp_command = swarp_command + "AXRRMS,THMEAN,THRMS,SKYLVL,SKYRMS,SKYSB,DATE -SUBTRACT_BACK N "
-    swarp_command = swarp_command + " -RESAMPLING_TYPE "+interptype+" -OVERSAMPLING 0"
-    swarp_command = swarp_command + " -PIXELSCALE_TYPE MANUAL -PIXEL_SCALE 2.0 -FSCALASTRO_TYPE VARIABLE"
-    swarp_command = swarp_command + " -IMAGEOUT_NAME {0} {1}"
-    subprocess.call(swarp_command.format(imageout, image), shell=True)
-    print swarp_command.format(imageout, image)
+def scampswarp(image,interptype = 'LANCZOS3',cattype = 'APASS'):
+    """
+    image:       name of image to scamped and swarped
+    intertype:   interpolation method
+
+    Updates image and resuffixes it with _ss.fits - saves
+    in original image location.
+    """
+    # Extract directory
+    bits = image.split('/')
+    name = bits.pop(-1)
+    imdir = '/'.join(bits)+'/'
+    # Choose output image name
+    imageout = name.split('.fits')[0]+'_ss.fits'
+    # Choose catalog name
+    catalog = image.split('.fits')[0]+'.cat'
+    # Check that the chosen catalog overlaps with data
+    os.system('python '+catalogchecks[cattype]+' -v -s /opt/sextractor/2.8.6/bin/sex -r /mnt/scratch-lustre/njones/SURP2015/nscripts/APASS save '+image)
+    # Run sextractor
+    os.system('sex -c default.sex '+image)
+    # rename catalog
+    os.system('mv test.cat '+catalog)
+    # Run scamp
+    os.system('scamp -c scamp.default '+catalog)
+    # Run swarp
+    os.system('swarp -c swarp.default '+image)
+    # Rename output image
+    os.system('mv coadd.fits '+imdir+imageout)
+    # Check overlap with catalog again
+    os.system('python '+catalogchecks[cattype]+' -v -s /opt/sextractor/2.8.6/bin/sex -r /mnt/scratch-lustre/njones/SURP2015/nscripts/APASS save '+imdir+imageout)
 
 
 
 if __name__ == '__main__': 
+    # Choose background sigma detection threshold
     detect_thresh = 50
+    # Choose config file names. These are the default names, changing them
+    # means updating the config files with new file names
     sextractor_config_name = "scamp.sex"
     params_name = "scamp.param"
     nnw_name = "default.nnw"
@@ -120,8 +160,10 @@ if __name__ == '__main__':
     scamp_config_name = "default.scamp"
     swarp_config_name = "default.swarp"
 
-    verbose_type = "NORMAL"
+    if VERBOSE:
+        verbose_type = "NORMAL"
 
+    # Write config files for sextractor
     fp = open(sextractor_config_name, "w+")
     fp.write(sextractor_config.format(detect_thresh=detect_thresh, filter_name=conv_name,
         parameters_name=params_name, starnnw_name=nnw_name, verbose_type=verbose_type))

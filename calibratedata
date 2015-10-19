@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 """
+Requires the following packages: os, docopt, astropy
+Requires the following files: correlate_config.py
+
 Usage:
-calibratedata [-hg] [-u DIRECTORY] [-o OBJECT] [-t DATE] [-c DIRECTORY] 
-              [-r DIRECTORY] [-d DIRECTORY] [-l DIRECTORY] [-s DIRECTORY]
-              [-n DIRECTORY] [-f FILES]
+calibratedata [-hg] [-u DIRECTORY] [-o OBJECT] [-t DATE] [-f FILES]
 
 Options:
     -h, --help
+    -v, --verbose
     -g, --generate                 Generate all files from scratch
     
     -u DIRECTORY, --updir DIR      Parent directory
@@ -15,18 +17,6 @@ Options:
                                    [default: spi1_1]
     -t DATE, --date DATE           Date of observation
                                    [default: 2014-10-31]
-    -c DIRECTORY, --cals DIR       Calibration file directory
-                                   [default: /calframes/]
-    -r DIRECTORY, --raws DIR       Raw images directory
-                                   [default: /raw_lights/]
-    -d DIRECTORY, --mdar DIR       Master darks directory
-                                   [default: /dark_masters/]
-    -l DIRECTORY, --mfla DIR       Master flats directory
-                                   [default: /flat_masters/]
-    -s DIRECTORY, --dsub DIR       Dark subtracted directory
-                                   [default: /dark_subtracted/]
-    -n DIRECTORY, --subs DIR       Calibrated directory
-                                   [default: /darksub_flatfield/]
     -f FILES, --files FILES        File list
                                    [default: ]
 """
@@ -35,70 +25,95 @@ Options:
 import os
 import docopt
 from astropy.io import fits
+import correlate_config
 
 ################################## ARGUMENTS ###################################
 arguments = docopt.docopt(__doc__)
 
+# Non-mandatory options with arguments
 files = arguments['--files']
 filelist = files.split(', ')
 updir = arguments['--updir']
 cloud = arguments['--cloud']
 date = arguments['--date']
-cals = arguments['--cals']
-raws = arguments['--raws']
-mdar = arguments['--mdar']
-mfla = arguments['--mfla']
-dsub = arguments['--dsub']
-subs = arguments['--subs']
 
+# Non-mandatory options without arguments
 GENERATE = arguments['--generate']
+VERBOSE = arguments['--verbose']
 
 if filelist != ['']:
     files = True
 ################################## DIRECTORIES #################################
 
+# Read in file info
+cals = config_data['cals']
+raws = config_data['raws']
+subs = config_data['dsff']
+
+# Specify directories
 parentdir = updir+'/'+cloud
 calfilesdir = parentdir+'/'+cals+'/'+date
 rawlightsdir = parentdir+'/'+raws+'/'+date
-masterdarkdir = parentdir+'/'+mdar+'/'+date
-masterflatdir = parentdir+'/'+mfla+'/'+date
-darksubdir = parentdir+'/'+dsub+'/'+date
+masterdarkdir = parentdir+'/'+damdir+'/'+date
+masterflatdir = parentdir+'/'+flmdir+'/'+date
+darksubdir = parentdir+'/'+dsmdir+'/'+date
 fullcaldir = parentdir+'/'+subs+'/'+date
-badframesdir = '/removedframes/'
+badframesdir = config_data['badframesdir']
 
+# If list of files not specified, make one from all files in the 
+# target directory
 if not files:
+    if VERBOSE:
+        print 'Making file list for dark subtraction and flat fielding'
     filelist = os.listdir(rawlightsdir)
     filelist = [rawlightsdir+'/'+f for f in filelist]
 
+# If list of files specified, find appropriate output directories for each
 if files:
+    if VERBOSE:
+        print 'Making list of output calibration directories for given file list. '
     calfilesdir = []
     rawlightsdir = []
     masterdarkdir = []
     masterflatdir = []
     darksubdir = []
     fullcaldir = []
+    # Extract date, raw directory and object from first file in list
     breakdown = filelist[0].split('/')
     fname = breakdown.pop(-1)
     date = breakdown.pop(-1)
     rawdir = '/'+breakdown.pop(-1)+'/'
     objects = breakdown.pop(-1)
+    # Find the parent directory
     parentdir = '/'.join(breakdown)+'/'
     for f in filelist:
+        # Repeat the process of finding the parent directory and file info
         breakdown = f.split('/')
         fname = breakdown.pop(-1)
         date = breakdown.pop(-1)
         newrawdir = '/'+breakdown.pop(-1)+'/'
         cloud = breakdown.pop(-1)
         newdirectory = '/'.join(breakdown)+'/'
-        assert newdirectory == parentdir
+        # Confirm that the parent directory
+        # is the same as for the first file
+        try:
+            assert newdirectory == parentdir
+        except AssertionError:
+            filelist.remove(f)
+            if VERBOSE:
+                print 'Cannot process '+f+', it is not in '+parentdir
+            continue
+        # Add appropriate output files to list
         calfilesdir.append(parentdir+'/'+cloud+'/'+cals+'/'+date)
         rawlightsdir.append(parentdir+'/'+cloud+'/'+raws+'/'+date)
-        masterdarkdir.append(parentdir+'/'+cloud+'/'+mdar+'/'+date)
-        masterflatdir.append(parentdir+'/'+cloud+'/'+mfla+'/'+date)
-        darksubdir.append(parentdir+'/'+cloud+'/'+dsub+'/'+date)
+        masterdarkdir.append(parentdir+'/'+cloud+'/'+damdir+'/'+date)
+        masterflatdir.append(parentdir+'/'+cloud+'/'+flmdir+'/'+date)
+        darksubdir.append(parentdir+'/'+cloud+'/'+dsmdir+'/'+date)
         fullcaldir.append(parentdir+'/'+cloud+'/'+subs+'/'+date)
     
 
+if VERBOSE:
+    print 'If calibration output directories do not exist, create them.'
 dis = [masterdarkdir,masterflatdir,darksubdir,fullcaldir]
 for di in dis:
     if isinstance(di,str):
@@ -110,7 +125,8 @@ for di in dis:
                 os.makedirs(d)
 
 ################################ FILE PROCESSING ###############################
-
+if VERBOSE:
+    print 'Begin processing files'
 for f in range(len(filelist)):
     if isinstance(rawlightsdir,list):
         rawlights = rawlightsdir[f]
@@ -126,6 +142,8 @@ for f in range(len(filelist)):
         darksub = darksubdir
         calfiles = calfilesdir
         fullcal = fullcaldir
+    if VERBOSE:
+        print 'If necessary, create folder for bad frames for '+filelist[f]
     if os.path.isdir(rawlights+'/'+badframesdir) == False:
         os.makedirs(rawlights+'/'+badframesdir)
     header = fits.getheader(filelist[f])
@@ -133,18 +151,25 @@ for f in range(len(filelist)):
     fname = fname.split('.fits')[0]
     serialno = header['SERIALNO']
     exptime = str(header['EXPTIME'])
+    if VERBOSE:
+        print 'Checking for master darks for '+filelist[f]
     mdarcheck = os.system('ls '+masterdark+'/master_'+serialno+'_dark_'+exptime+'.fits')
     if mdarcheck != 0 or GENERATE ==True:
+        if VERBOSE:
+            print 'Creating master darks for '+filelist[f]
         os.system('create_masterdarks -v -o '+masterdark+' '+calfiles)
     mdarcheck = os.system('ls '+masterdark+'/master_'+serialno+'_dark_'+exptime+'.fits')
     if mdarcheck != 0:
-        print 'Missing master darks for image'
-        #os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        if VERBOSE:
+            print 'Missing master darks for image '+filelist[f]+', skipping.'
+        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
         continue
     os.system('ls '+calfiles+'/*'+serialno+'*flat.fits > tmp.txt')
     flatfilelist = []
     mdarchecks = []
     sdarchecks = []
+    if VERBOSE:
+        print 'Checking for master darks for flats for '+filelist[f]
     with open('tmp.txt') as t:
         for line in t:
             line = line.split('/')[-1]
@@ -156,19 +181,27 @@ for f in range(len(filelist)):
             sdarcheck = os.system('ls '+darksub+'/'+line+'_ds.fits')
             sdarchecks.append(sdarcheck)
     if not all(mdarchecks) < 1:
-        print 'Missing master darks for flats'
+        if VERBOSE:
+            print 'Missing master darks for flat field for '+filelist[f]+', skipping.'
         #os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
         continue
+    if VERBOSE:
+        print 'Checking for dark subtracted '+filelist[f]
     sdarcheck = os.system('ls '+darksub+'/'+fname+'_ds.fits')
     if sdarcheck != 0 or GENERATE == True:
+        if VERBOSE:
+            print 'Subtracting master darks from '+filelist[f]
         os.system('subtract_masterdarks -v -m '+masterdark+' -o '+
                   darksub+' '+rawlights)
     sdarcheck = os.system('ls '+darksub+'/'+fname+'_ds.fits')
     if sdarcheck != 0:
-        print 'Missing dark subtracted images'
-        #os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        if VERBOSE:
+            print 'Missing dark subtracted '+filelist[f]+', skipping'
+        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
         continue
     if not all(sdarchecks) < 1:
+        if VERBOSE:
+            print 'Creating dark subtracted master flats for '+filelist[f]
         os.system('subtract_masterdarks -v -m '+masterdark+' -o '+ 
                   darksub+' '+calfiles)
     with open('tmp.txt') as t:
@@ -178,24 +211,35 @@ for f in range(len(filelist)):
             sdarcheck = os.system('ls '+darksub+'/'+line+'_ds.fits')
             sdarchecks.append(sdarcheck)
     if not all(sdarchecks) < 1:
-        print 'Missing dark subtracted flats'
-        #os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        if VERBOSE:
+            print 'Missing dark subtracted flats for '+filelist[f]+', skipping'
+        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
         continue
+    if VERBOSE:
+        print 'Checking for master flats for '+filelist[f]
     mflacheck = os.system('ls '+masterflat+'/master_'+serialno+'_flat.fits')
     if mflacheck != 0 or GENERATE == True:
+        if VERBOSE:
+            print 'Creating master flats for '+filelist[f]
         os.system('create_masterflats -v -o '+masterflat+' '+darksub)
     mflacheck = os.system('ls '+masterflat+'/master_'+serialno+'_flat.fits')
     if mflacheck != 0:
-        print 'Missing master flats'
-        #os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
-        continue        
+        if VERBOSE:
+            print 'Missing master flats for '+filelist[f]+', skipping.'
+        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        continue
+    if VERBOSE:
+        print 'Checking for fully calibrated image '+filelist[f]        
     divfcheck = os.system('ls '+fullcal+'/'+fname+'_ds_ff.fits')
     if divfcheck != 0 or GENERATE == True:
+        if VERBOSE:
+            print 'Creating fully calibrated image for '+filelist[f]
         os.system('divideby_masterflats -v -m '+masterflat+' -o '+
                   fullcal+' '+darksub)
     divfcheck = os.system('ls '+fullcal+'/'+fname+'_ds_ff.fits')
     if divfcheck != 0:
-        print 'Missing flat-divided images'
-        #os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        if VERBOSE:
+            print 'Missing flat-divided images for '+filelist[f]
+        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
         continue
     
