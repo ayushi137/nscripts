@@ -553,7 +553,7 @@ for cloud in objects:
 			dflybeam = pfwhm*pixscale
 			if isnan(dflybeam)==True: 
 				if VERBOSE:
-					print 'No FWHM found'
+					print 'No Dragonfly resolution found'
 				continue
 	        # Add FWHM to header
 			dflyheader['FWHM'] = (dflybeam, 'arcseconds')
@@ -576,7 +576,7 @@ for cloud in objects:
 				if VERBOSE:
 					print 'Run photometry for '+f
 				# Use Jielai's photometery
-				os.system('python create_photometriclights.py -pkln -u {0} -o {1} -i {1} -r {2}'.format(ddi+f,ddi,APASSdir))
+				os.system('python create_photometriclights.py -pklnv -u {0} -o {1} -i {1} -r {2}'.format(ddi+f,ddi,APASSdir))
 				try:
 					if VERBOSE:
 						print 'Crop zeroes out of '+f
@@ -584,7 +584,7 @@ for cloud in objects:
 					photodat = reshape(photodat,photodat,0,limval=0)
 				except IOError:
 					if VERBOSE:
-						print 'Missing photometry '+f+', skipping'
+						print 'Missing photometry for '+f+', skipping'
 					continue
 				if VERBOSE:
 					print 'Convert '+f+' to kJy/sr'
@@ -666,15 +666,21 @@ for cloud in objects:
 					continue
 
 	################################ MASK #####################################
+				if VERBOSE:
+					print 'Setting cutoff'
+				# find information for setting cutoff value (kJy/sr) from config file
+				# Either create cutoff from map values
 				if config_data['cutoff'] == 0:
 					if config_data['cutoff_type'] == 'median':
 						cutoff = config_data['cutoff_mult']*median(ocdata)
 					if config_data['cutoff_type'] == 'mean':
 						cutoff = config_data['cutoff_mult']*mean(ocdata)
+				# or set hard cutoff for all maps
 				elif config_data['cutoff'] != 0:
 					cutoff = config_data['cutoff'] 
-				print 'Do masking'
-				cutoff = 0.1
+				if VERBOSE:
+					print 'Masking'
+				# Create map to which pixels should be masked
 				mapcut = fits.getdata(odi+ocname)
 				mapcut[where(mapcut > cutoff)] = 0
 	            # Create mask name
@@ -693,21 +699,19 @@ for cloud in objects:
 								    outfile = pdi+mname,
 								    header = dflyheader)
 				p0 = [2,1,1,1]
-	################################ RESHAPE #####################################  
-				print 'Do reshape'
+	################################ CROP #####################################  
+				if VERBOSE:
+					print 'Cropping masked image back to a rectangle'
 				mspl = mname.split('.fits')[0]
 				ress = np.sqrt((dflybeam/s2f)**2+(herbeam/s2f)**2)
 				r = reshape(mdata,mdata,2*ress)
 				t = reshape(target,mdata,2*ress)
-
-	################################ REGRID #####################################
-				rname = mspl+'_regrid.fits'
-				hname = hername.split('.fits')[0]
-				hname = hname+'_reshaped.fits'
+				rname = mspl+'_crop.fits'
 				fits.writeto(rdi+rname,r,dflyheader,clobber=True)
 
 	################################ BACK-SUB #####################################
-				print 'Background plane fit'
+				if VERBOSE:
+					print 'Performing background plane fit and creating correlation'
 				rspl = rname.split('.fits')[0]
 				bname = rspl+'_backsub.fits'
 				p0 = [2,1,1,1]
