@@ -421,79 +421,79 @@ for d in dirlist:
 
 for cloud in objects:
 	if VERBOSE:
-    	print 'OBJECT '+cloud
-    dates = objectdates[cloud]
-    herfiles = objectherfiles[cloud]
-    for date in dates:
-    	if VERBOSE:
-        	print 'DATE '+date
+		print 'OBJECT '+cloud
+	dates = objectdates[cloud]
+	herfiles = objectherfiles[cloud]
+	for date in dates:
+		if VERBOSE:
+			print 'DATE '+date
 
 ################################ CALIBRATE #####################################
-        fs = datenames[date]
+		fs = datenames[date]
 	# if no files found for this date skip to next
-	if fs == []:
-		if VERBOSE:
-			print 'No files here, continuing'
-		continue
+		if fs == []:
+			if VERBOSE:
+				print 'No files here, continuing'
+				continue
 	# Do dark subtraction and flat fielding on files as a group
-	if GENERATE or CALIBRATE:
-		if VERBOSE:
-			print 'Force generate calibration files'
-		if files:
-			calcom = ('python calibratedata -g -f '+
-				  (', ').join(filelist))
-		if not files:
-			calcom = ('python calibratedata -g  -o '+cloud+
-				  ' -t '+date)
-		os.system(calcom)
-	if not GENERATE and not CALIBRATE:
-		if VERBOSE:
-			print 'Check for calibration files'
-		if files:
-			calcom = ('python calibratedata -f '+
-				  (', ').join(filelist))
-		if not files:
-			calcom = ('python calibratedata -o '+cloud+
-				  ' -t '+date)
-        	os.system(calcom)
-    if VERBOSE:
+		if GENERATE or CALIBRATE:
+			if VERBOSE:
+				print 'Force generate calibration files'
+			if files:
+				calcom = ('python calibratedata -g -f '+
+					  (', ').join(filelist))
+			if not files:
+				calcom = ('python calibratedata -g  -o '+cloud+
+					  ' -t '+date)
+			os.system(calcom)
+		if not GENERATE and not CALIBRATE:
+			if VERBOSE:
+				print 'Check for calibration files'
+			if files:
+				calcom = ('python calibratedata -f '+
+					  (', ').join(filelist))
+			if not files:
+				calcom = ('python calibratedata -o '+cloud+
+					  ' -t '+date)
+			os.system(calcom)
+	if VERBOSE:
 		print 'Check for output directories'
 
     # Directory containing raw image files
-    di = directory+cloud+rawdir+date+'/'
+	di = directory+cloud+rawdir+date+'/'
     # Directory containing dark subtracted and flat fielded files
-    ddi = directory+cloud+subdir+date+'/'
+	ddi = directory+cloud+subdir+date+'/'
     # Directory containing source extractor object maps
-    odi = directory+cloud+objdir+date+'/'
+	odi = directory+cloud+objdir+date+'/'
     # Directory containing source extractor catalogues
-    cdi = directory+cloud+catdir+date+'/'
+	cdi = directory+cloud+catdir+date+'/'
     # Directory containing source extractor background maps
-    bdi = directory+cloud+bakdir+date+'/'
+	bdi = directory+cloud+bakdir+date+'/'
     # Directory containing photometered images
-    pdi = directory+cloud+phodir+date+'/'
+	pdi = directory+cloud+phodir+date+'/'
     # Directory containing regridded images
-    rdi = directory+cloud+regdir+date+'/'
+	rdi = directory+cloud+regdir+date+'/'
     # Directory containing masked images
-    mdi = directory+cloud+magdir+date+'/'
+	mdi = directory+cloud+magdir+date+'/'
     # Directory containing background subtracted images
-    gdi = directory+cloud+bsudir+date+'/'
+	gdi = directory+cloud+bsudir+date+'/'
     # Directory containing correlation plots
-    sdi = directory+cloud+cordir+date+'/'
+	sdi = directory+cloud+cordir+date+'/'
 
-    if VERBOSE:
-    	print 'If needed, generate lower level output directories'
+	if VERBOSE:
+		print 'If needed, generate lower level output directories'
     # Create output directories if any are missing
-    for d in dirlist:
-        if os.path.isdir(directory+cloud+d+date) == False:
-            os.system('mkdir '+directory+cloud+d+date+'/')
+	for d in dirlist:
+		if os.path.isdir(directory+cloud+d+date) == False:
+			os.system('mkdir '+directory+cloud+d+date+'/')
 
 ################################ CYCLE FILES ###################################
     
-    for f in fs:
+	for f in fs:
 		try:
 			if VERBOSE:
 				print 'FILE '+di+f
-
+				
 			f = f.split('.fits')[0]+'_ds_ff.fits'
 	  
 	        # Confirm calibrated file exists
@@ -527,7 +527,7 @@ for cloud in objects:
 
 ################################ IMAGE PROPERTIES ##############################
 	        # Read in ds-ff-ss data from file
-	        if VERBOSE:
+		if VERBOSE:
 	        	print 'Read '+f
 			dflyimage = fits.open(ddi+f)
 			dflydata = dflyimage[0].data
