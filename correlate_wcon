@@ -54,7 +54,7 @@ Options:
     -x DIRECTORY, --cross DIR       Location of files to correlate with
                                     [default: ../herschel/]
     -a DIRECTORY, --apass DIR       Location of APASS catalogues
-                                    [default: /mnt/scratch-lustre/njones/SURP2015/APASS/]
+                                    [default: /mnt/scratch-lustre/njones/SURP2015/nscripts/APASS/]
     -m MODE, --mode MODE 			Status of input files: set to raw or calibrated
     								[default: raw]
 Testing Options:
@@ -135,7 +135,7 @@ BACKSUB = arguments['--backsub']
 ############################## IMPORT FUNCTIONS ################################
 
 from cartesian import cartesian
-from callastrometry import callastrometry
+from callastrometry import callastrometry,scrubwcsheader
 from scampswarp import scampswarp
 from photometrypack import *
 from resconvolve import resconvolve
@@ -518,6 +518,9 @@ for cloud in objects:
 				scampswarp(ddi+f)
 			if VERBOSE:
 				print 'Update '+f+' header with SWARP WCS'
+			
+		
+				
 			oldhead = fits.getheader(ddi+f)
 			f = spl+'_ss.fits'
 			fspl = f.split('.fits')[0]
@@ -525,6 +528,8 @@ for cloud in objects:
 			uphead = oldhead.copy()
 			uphead.update(newhead)
 			fits.writeto(ddi+f,ssdata,uphead,clobber=True)
+			if GENERATE==True or ASTROMETRY==True or fexists(cdi+fspl+'.cat') == False or fexists(bdi+fspl+'_background.fits') == False:
+				sexcall(f,ddi,odi,cdi,bdi)
 
 ################################ IMAGE PROPERTIES ##############################
 	        # Read in ds-ff-ss data from file
@@ -577,11 +582,11 @@ for cloud in objects:
 				if VERBOSE:
 					print 'Run photometry for '+f
 				# Use Jielai's photometery
-				os.system('python create_photometriclights.py -pklnv -u {0} -o {1} -i {1} -r {2}'.format(ddi+f,ddi,APASSdir))
+				os.system('python create_photometriclights.py -pklnv -u {0} -o {1} -i {1} -r {2} -s {3}'.format(ddi+f,ddi,APASSdir,'/opt/sextractor/2.8.6/bin/sex'))
 				try:
 					if VERBOSE:
 						print 'Crop zeroes out of '+f
-					photodat,H = fits.getdata(ddi+f.split('.fits')[0]+'_pcapass.fits',header = True)
+					photodat,H = fits.getdata(ddi+f.split('.fits')[0]+'_pcp_pcr.fits',header = True)
 					photodat = reshape(photodat,photodat,0,limval=0)
 				except IOError:
 					if VERBOSE:
@@ -644,7 +649,7 @@ for cloud in objects:
 					cdata,dflyheader = fits.getdata(pdi+cname,header=True)
 				elif os.path.isfile(pdi+cname) != True or GENERATE == True or CONVOLVE == True:
 					if VERBOSE:
-						print 'Creating convolved data for '
+						print 'Creating convolved data for '+pname
 					cdata,dflyheader = resconvolve(pdi+pname,dflybeam,herbeam,
 								       outfile = pdi+cname,
 								       header = dflyheader)
@@ -764,7 +769,7 @@ for cloud in objects:
 				elif isinstance(newr,float) == True:
 					print 'Failed background subtraction'
 					continue
-				print 'Done ', f,'\n\n\n\n\n\n'
+				print 'Done ', mname,'\n\n\n\n\n\n'
 		except AssertionError as e:
 			if VERBOSE:
 				print e

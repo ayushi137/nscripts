@@ -323,11 +323,11 @@ default_nnw = """NNW
 def create_catalog(image_name, detect_thresh=10):
 
     # Create a config, param, conv, nnw file for Sextractor
-    sextractor_config_name = "/tmp/scamp.sex"
-    params_name = "/tmp/scamp.param"
-    nnw_name = "/tmp/default.nnw"
-    conv_name = "/tmp/default.conv"
-    catalog_name = "/tmp/cz.cat"
+    sextractor_config_name = "tmp/scamp.sex"
+    params_name = "tmp/scamp.param"
+    nnw_name = "tmp/default.nnw"
+    conv_name = "tmp/default.conv"
+    catalog_name = "tmp/cz.cat"
     if verbose:
         verbose_type = "NORMAL"
     else:
