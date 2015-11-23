@@ -6,13 +6,13 @@ scope_long = {'Dragonfly':-105.528350*u.deg}
 scope_alt = {'Dragonfly':2214*u.m}
 
 # specify herschel resolution at each wavelength
-SPIRE = {'PSW':17.6,'PMW':23.9,'PLW':35.2}
+SPIRE = {'PSW':17.6,'PMW':23.9,'PLW':35.2,'250':17.6,'350':23.9,'500':35.2}
 spirekeys = SPIRE.keys()
 
 config_data = {
 	
 	'scope':'Dragonfly' # telescope being used
-	'objects':['PGM_1_2','spi1_1'] # names of cloud directories
+	'objects':['IC5146'] # names of cloud directories
 	'raws':'/raw_lights/' # name of raw file directory
 	'cals':'/calframes/' # name of calibration file directory
 	'dsff':'/darksub_flatfield/' # name of calibrated file directory (will be created)
