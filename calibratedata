@@ -4,7 +4,7 @@ Requires the following packages: os, docopt, astropy
 Requires the following files: correlate_config.py
 
 Usage:
-calibratedata [-hg] [-u DIRECTORY] [-o OBJECT] [-t DATE] [-f FILES]
+calibratedata [-hvg] [-u DIRECTORY] [-o OBJECT] [-t DATE] [-f FILES]
 
 Options:
     -h, --help
@@ -25,7 +25,7 @@ Options:
 import os
 import docopt
 from astropy.io import fits
-import correlate_config
+from correlate_config import *
 
 ################################## ARGUMENTS ###################################
 arguments = docopt.docopt(__doc__)
@@ -157,7 +157,7 @@ for f in range(len(filelist)):
     if mdarcheck != 0 or GENERATE ==True:
         if VERBOSE:
             print 'Creating master darks for '+filelist[f]
-        os.system('create_masterdarks -v -o '+masterdark+' '+calfiles)
+        os.system('./create_masterdarks -v -o '+masterdark+' '+calfiles)
     mdarcheck = os.system('ls '+masterdark+'/master_'+serialno+'_dark_'+exptime+'.fits')
     if mdarcheck != 0:
         if VERBOSE:
@@ -183,7 +183,7 @@ for f in range(len(filelist)):
     if not all(mdarchecks) < 1:
         if VERBOSE:
             print 'Missing master darks for flat field for '+filelist[f]+', skipping.'
-        #os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
+        os.system('mv '+filelist[f]+' '+rawlights+'/'+badframesdir)
         continue
     if VERBOSE:
         print 'Checking for dark subtracted '+filelist[f]
@@ -191,7 +191,7 @@ for f in range(len(filelist)):
     if sdarcheck != 0 or GENERATE == True:
         if VERBOSE:
             print 'Subtracting master darks from '+filelist[f]
-        os.system('subtract_masterdarks -v -m '+masterdark+' -o '+
+        os.system('./subtract_masterdarks -v -m '+masterdark+' -o '+
                   darksub+' '+rawlights)
     sdarcheck = os.system('ls '+darksub+'/'+fname+'_ds.fits')
     if sdarcheck != 0:
@@ -202,7 +202,7 @@ for f in range(len(filelist)):
     if not all(sdarchecks) < 1:
         if VERBOSE:
             print 'Creating dark subtracted master flats for '+filelist[f]
-        os.system('subtract_masterdarks -v -m '+masterdark+' -o '+ 
+        os.system('./subtract_masterdarks -v -m '+masterdark+' -o '+ 
                   darksub+' '+calfiles)
     with open('tmp.txt') as t:
         for line in t:
@@ -221,7 +221,7 @@ for f in range(len(filelist)):
     if mflacheck != 0 or GENERATE == True:
         if VERBOSE:
             print 'Creating master flats for '+filelist[f]
-        os.system('create_masterflats -v -o '+masterflat+' '+darksub)
+        os.system('./create_masterflats -v -o '+masterflat+' '+darksub)
     mflacheck = os.system('ls '+masterflat+'/master_'+serialno+'_flat.fits')
     if mflacheck != 0:
         if VERBOSE:
@@ -234,7 +234,7 @@ for f in range(len(filelist)):
     if divfcheck != 0 or GENERATE == True:
         if VERBOSE:
             print 'Creating fully calibrated image for '+filelist[f]
-        os.system('divideby_masterflats -v -m '+masterflat+' -o '+
+        os.system('./divideby_masterflats -v -m '+masterflat+' -o '+
                   fullcal+' '+darksub)
     divfcheck = os.system('ls '+fullcal+'/'+fname+'_ds_ff.fits')
     if divfcheck != 0:

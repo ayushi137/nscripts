@@ -54,7 +54,7 @@ Options:
     -x DIRECTORY, --cross DIR       Location of files to correlate with
                                     [default: ../herschel/]
     -a DIRECTORY, --apass DIR       Location of APASS catalogues
-                                    [default: /mnt/scratch-lustre/njones/SURP2015/APASS/]
+                                    [default: /mnt/scratch-lustre/njones/SURP2015/nscripts/APASS/]
     -m MODE, --mode MODE 			Status of input files: set to raw or calibrated
     								[default: raw]
 Testing Options:
@@ -135,7 +135,7 @@ BACKSUB = arguments['--backsub']
 ############################## IMPORT FUNCTIONS ################################
 
 from cartesian import cartesian
-from callastrometry import callastrometry
+from callastrometry import callastrometry,scrubwcsheader
 from scampswarp import scampswarp
 from photometrypack import *
 from resconvolve import resconvolve
@@ -150,7 +150,7 @@ elif not LOWMEMORY:
 
 ################################ CONFIG FILE ####################################
 
-import correlate_config
+from correlate_config import *
 
 rawdir = config_data['raws']
 caldir = config_data['cals']
@@ -328,7 +328,7 @@ if files:
 	fname = breakdown.pop(-1)
 	date = breakdown.pop(-1)
 	rawdir = '/'+breakdown.pop(-1)+'/'
-	objects = breakdown.pop(-1)
+	objs = breakdown.pop(-1)
 	# Find parent directory
 	directory = '/'+'/'.join(breakdown)+'/'
 	for f in filelist:
@@ -406,6 +406,7 @@ if not files:
 			fnames = os.listdir(direc+'/'+date)
 			datenames[date] = fnames
 
+objects = objectdates.keys()
 
 if VERBOSE:
 	print 'If needed, create top level output directories.'
@@ -421,79 +422,79 @@ for d in dirlist:
 
 for cloud in objects:
 	if VERBOSE:
-    	print 'OBJECT '+cloud
-    dates = objectdates[cloud]
-    herfiles = objectherfiles[cloud]
-    for date in dates:
-    	if VERBOSE:
-        	print 'DATE '+date
+		print 'OBJECT '+cloud
+	dates = objectdates[cloud]
+	herfiles = objectherfiles[cloud]
+	for date in dates:
+		if VERBOSE:
+			print 'DATE '+date
 
 ################################ CALIBRATE #####################################
-        fs = datenames[date]
+		fs = datenames[date]
 	# if no files found for this date skip to next
-	if fs == []:
-		if VERBOSE:
-			print 'No files here, continuing'
-		continue
+		if fs == []:
+			if VERBOSE:
+				print 'No files here, continuing'
+				continue
 	# Do dark subtraction and flat fielding on files as a group
-	if GENERATE or CALIBRATE:
-		if VERBOSE:
-			print 'Force generate calibration files'
-		if files:
-			calcom = ('python calibratedata -g -f '+
-				  (', ').join(filelist))
-		if not files:
-			calcom = ('python calibratedata -g  -o '+cloud+
-				  ' -t '+date)
-		os.system(calcom)
-	if not GENERATE and not CALIBRATE:
-		if VERBOSE:
-			print 'Check for calibration files'
-		if files:
-			calcom = ('python calibratedata -f '+
-				  (', ').join(filelist))
-		if not files:
-			calcom = ('python calibratedata -o '+cloud+
-				  ' -t '+date)
-        	os.system(calcom)
-    if VERBOSE:
+		if GENERATE or CALIBRATE:
+			if VERBOSE:
+				print 'Force generate calibration files'
+			if files:
+				calcom = ('python calibratedata -gv -f '+
+					  (', ').join(filelist))
+			if not files:
+				calcom = ('python calibratedata -gv  -o '+cloud+
+					  ' -t '+date)
+			os.system(calcom)
+		if not GENERATE and not CALIBRATE:
+			if VERBOSE:
+				print 'Check for calibration files'
+			if files:
+				calcom = ('python calibratedata -v -f '+
+					  (', ').join(filelist))
+			if not files:
+				calcom = ('python calibratedata -v -o '+cloud+
+					  ' -t '+date)
+			os.system(calcom)
+	if VERBOSE:
 		print 'Check for output directories'
 
     # Directory containing raw image files
-    di = directory+cloud+rawdir+date+'/'
+	di = directory+cloud+rawdir+date+'/'
     # Directory containing dark subtracted and flat fielded files
-    ddi = directory+cloud+subdir+date+'/'
+	ddi = directory+cloud+subdir+date+'/'
     # Directory containing source extractor object maps
-    odi = directory+cloud+objdir+date+'/'
+	odi = directory+cloud+objdir+date+'/'
     # Directory containing source extractor catalogues
-    cdi = directory+cloud+catdir+date+'/'
+	cdi = directory+cloud+catdir+date+'/'
     # Directory containing source extractor background maps
-    bdi = directory+cloud+bakdir+date+'/'
+	bdi = directory+cloud+bakdir+date+'/'
     # Directory containing photometered images
-    pdi = directory+cloud+phodir+date+'/'
+	pdi = directory+cloud+phodir+date+'/'
     # Directory containing regridded images
-    rdi = directory+cloud+regdir+date+'/'
+	rdi = directory+cloud+regdir+date+'/'
     # Directory containing masked images
-    mdi = directory+cloud+magdir+date+'/'
+	mdi = directory+cloud+magdir+date+'/'
     # Directory containing background subtracted images
-    gdi = directory+cloud+bsudir+date+'/'
+	gdi = directory+cloud+bsudir+date+'/'
     # Directory containing correlation plots
-    sdi = directory+cloud+cordir+date+'/'
+	sdi = directory+cloud+cordir+date+'/'
 
-    if VERBOSE:
-    	print 'If needed, generate lower level output directories'
+	if VERBOSE:
+		print 'If needed, generate lower level output directories'
     # Create output directories if any are missing
-    for d in dirlist:
-        if os.path.isdir(directory+cloud+d+date) == False:
-            os.system('mkdir '+directory+cloud+d+date+'/')
+	for d in dirlist:
+		if os.path.isdir(directory+cloud+d+date) == False:
+			os.system('mkdir '+directory+cloud+d+date+'/')
 
 ################################ CYCLE FILES ###################################
     
-    for f in fs:
+	for f in fs:
 		try:
 			if VERBOSE:
 				print 'FILE '+di+f
-
+				
 			f = f.split('.fits')[0]+'_ds_ff.fits'
 	  
 	        # Confirm calibrated file exists
@@ -517,6 +518,9 @@ for cloud in objects:
 				scampswarp(ddi+f)
 			if VERBOSE:
 				print 'Update '+f+' header with SWARP WCS'
+			
+		
+				
 			oldhead = fits.getheader(ddi+f)
 			f = spl+'_ss.fits'
 			fspl = f.split('.fits')[0]
@@ -524,11 +528,13 @@ for cloud in objects:
 			uphead = oldhead.copy()
 			uphead.update(newhead)
 			fits.writeto(ddi+f,ssdata,uphead,clobber=True)
+			if GENERATE==True or ASTROMETRY==True or fexists(cdi+fspl+'.cat') == False or fexists(bdi+fspl+'_background.fits') == False:
+				sexcall(f,ddi,odi,cdi,bdi)
 
 ################################ IMAGE PROPERTIES ##############################
 	        # Read in ds-ff-ss data from file
-	        if VERBOSE:
-	        	print 'Read '+f
+			if VERBOSE:
+				print 'Read '+f
 			dflyimage = fits.open(ddi+f)
 			dflydata = dflyimage[0].data
 			if VERBOSE:
@@ -553,7 +559,7 @@ for cloud in objects:
 			dflybeam = pfwhm*pixscale
 			if isnan(dflybeam)==True: 
 				if VERBOSE:
-					print 'No FWHM found'
+					print 'No Dragonfly resolution found'
 				continue
 	        # Add FWHM to header
 			dflyheader['FWHM'] = (dflybeam, 'arcseconds')
@@ -576,15 +582,15 @@ for cloud in objects:
 				if VERBOSE:
 					print 'Run photometry for '+f
 				# Use Jielai's photometery
-				os.system('python create_photometriclights.py -pkln -u {0} -o {1} -i {1} -r {2}'.format(ddi+f,ddi,APASSdir))
+				os.system('python create_photometriclights.py -pklnv -u {0} -o {1} -i {1} -r {2} -s {3}'.format(ddi+f,ddi,APASSdir,'/opt/sextractor/2.8.6/bin/sex'))
 				try:
 					if VERBOSE:
 						print 'Crop zeroes out of '+f
-					photodat,H = fits.getdata(ddi+f.split('.fits')[0]+'_pcapass.fits',header = True)
+					photodat,H = fits.getdata(ddi+f.split('.fits')[0]+'_pcp_pcr.fits',header = True)
 					photodat = reshape(photodat,photodat,0,limval=0)
 				except IOError:
 					if VERBOSE:
-						print 'Missing photometry '+f+', skipping'
+						print 'Missing photometry for '+f+', skipping'
 					continue
 				if VERBOSE:
 					print 'Convert '+f+' to kJy/sr'
@@ -643,7 +649,7 @@ for cloud in objects:
 					cdata,dflyheader = fits.getdata(pdi+cname,header=True)
 				elif os.path.isfile(pdi+cname) != True or GENERATE == True or CONVOLVE == True:
 					if VERBOSE:
-						print 'Creating convolved data for '
+						print 'Creating convolved data for '+pname
 					cdata,dflyheader = resconvolve(pdi+pname,dflybeam,herbeam,
 								       outfile = pdi+cname,
 								       header = dflyheader)
@@ -666,15 +672,21 @@ for cloud in objects:
 					continue
 
 	################################ MASK #####################################
+				if VERBOSE:
+					print 'Setting cutoff'
+				# find information for setting cutoff value (kJy/sr) from config file
+				# Either create cutoff from map values
 				if config_data['cutoff'] == 0:
 					if config_data['cutoff_type'] == 'median':
 						cutoff = config_data['cutoff_mult']*median(ocdata)
 					if config_data['cutoff_type'] == 'mean':
 						cutoff = config_data['cutoff_mult']*mean(ocdata)
+				# or set hard cutoff for all maps
 				elif config_data['cutoff'] != 0:
 					cutoff = config_data['cutoff'] 
-				print 'Do masking'
-				cutoff = 0.1
+				if VERBOSE:
+					print 'Masking'
+				# Create map to which pixels should be masked
 				mapcut = fits.getdata(odi+ocname)
 				mapcut[where(mapcut > cutoff)] = 0
 	            # Create mask name
@@ -693,21 +705,19 @@ for cloud in objects:
 								    outfile = pdi+mname,
 								    header = dflyheader)
 				p0 = [2,1,1,1]
-	################################ RESHAPE #####################################  
-				print 'Do reshape'
+	################################ CROP #####################################  
+				if VERBOSE:
+					print 'Cropping masked image back to a rectangle'
 				mspl = mname.split('.fits')[0]
 				ress = np.sqrt((dflybeam/s2f)**2+(herbeam/s2f)**2)
 				r = reshape(mdata,mdata,2*ress)
 				t = reshape(target,mdata,2*ress)
-
-	################################ REGRID #####################################
-				rname = mspl+'_regrid.fits'
-				hname = hername.split('.fits')[0]
-				hname = hname+'_reshaped.fits'
+				rname = mspl+'_crop.fits'
 				fits.writeto(rdi+rname,r,dflyheader,clobber=True)
 
 	################################ BACK-SUB #####################################
-				print 'Background plane fit'
+				if VERBOSE:
+					print 'Performing background plane fit and creating correlation'
 				rspl = rname.split('.fits')[0]
 				bname = rspl+'_backsub.fits'
 				p0 = [2,1,1,1]
@@ -759,7 +769,7 @@ for cloud in objects:
 				elif isinstance(newr,float) == True:
 					print 'Failed background subtraction'
 					continue
-				print 'Done ', f,'\n\n\n\n\n\n'
+				print 'Done ', mname,'\n\n\n\n\n\n'
 		except AssertionError as e:
 			if VERBOSE:
 				print e
